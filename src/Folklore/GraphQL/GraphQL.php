@@ -19,7 +19,9 @@ use GraphQL\GraphQL as GraphQLBase;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\Type;
 use GraphQL\Type\Schema;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Support\Arr;
 
 /**
  * TODO: Missing class description.
@@ -52,6 +54,11 @@ class GraphQL
     private $types = [];
     
     /**
+     * @var Repository
+     */
+    private $config;
+    
+    /**
      * @param Application           $app
      * @param TypeRegistryInterface $registry
      */
@@ -59,6 +66,7 @@ class GraphQL
     {
         $this->app = $app;
         $this->registry = $registry;
+        $this->config = $app->make('config');
     }
     
     /**
@@ -76,7 +84,7 @@ class GraphQL
         
         $schemaName = \is_string($schema)
             ? $schema
-            : config('graphql.schema', 'default');
+            : $this->config->get('graphql.schema', 'default');
         
         if (!\is_array($schema) && !isset($this->schemas[$schemaName])) {
             throw new SchemaNotFound('Type ' . $schemaName . ' not found.');
@@ -90,29 +98,13 @@ class GraphQL
             return $schema;
         }
         
-        $schemaQuery = array_get($schema, 'query', []);
-        $schemaMutation = array_get($schema, 'mutation', []);
-        $schemaSubscription = array_get($schema, 'subscription', []);
-        $schemaTypes = array_get($schema, 'types', []);
+        $schemaQuery = Arr::get($schema, 'query', []);
+        $schemaMutation = Arr::get($schema, 'mutation', []);
+        $schemaSubscription = Arr::get($schema, 'subscription', []);
+        $schemaTypes = Arr::get($schema, 'types', []);
         
-        //Get the types either from the schema, or the global types.
-        $types = [];
-        if (sizeof($schemaTypes)) {
-            foreach ($schemaTypes as $name => $type) {
-                $objectType = $this->objectType(
-                    $type,
-                    is_numeric($name)
-                        ? []
-                        : [
-                        'name' => $name,
-                    ]
-                );
-                $this->registry->register($objectType);
-                $types[] = $objectType;
-                
-                $this->addType($type, $name);
-            }
-        }
+        // Get the types from the schema.
+        $types = $this->registerSchemaTypes($schemaTypes);
         
         $query = $this->objectType(
             $schemaQuery,
@@ -152,6 +144,32 @@ class GraphQL
                 'typeLoader'   => $typeLoader,
             ]
         );
+    }
+    
+    /**
+     * @param array $schemaTypes
+     *
+     * @return array
+     * @throws TypeNotFound
+     */
+    private function registerSchemaTypes(array $schemaTypes) : array
+    {
+        $registeredTypes = [];
+        
+        foreach ($schemaTypes as $name => $type) {
+            $typeOptions = \is_numeric($name)
+                ? []
+                : ['name' => $name];
+            $objectType = $this->objectType($type, $typeOptions);
+            
+            $this->registry->register($objectType);
+            
+            $registeredTypes[] = $objectType;
+            
+            $this->addType($type, $name);
+        }
+        
+        return $registeredTypes;
     }
     
     /**
