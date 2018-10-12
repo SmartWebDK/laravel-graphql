@@ -104,20 +104,29 @@ class GraphQL
         
         //Get the types either from the schema, or the global types.
         $types = [];
+        $typeLoader = null;
         if (sizeof($schemaTypes)) {
             foreach ($schemaTypes as $name => $type) {
-                $objectType = $this->objectType($type, is_numeric($name) ? []:[
-                    'name' => $name
-                ]);
+                $objectType = $this->objectType(
+                    $type,
+                    is_numeric($name)
+                        ? []
+                        : [
+                        'name' => $name,
+                    ]
+                );
                 $this->typesInstances[$name] = $objectType;
                 $types[] = $objectType;
-
+                
                 $this->addType($type, $name);
             }
         } else {
             foreach ($this->types as $name => $type) {
                 $types[] = $this->type($name);
             }
+//            $typeLoader = function (string $name) : Type {
+//                return $this->type($name);
+//            };
         }
         
         $query = $this->objectType(
@@ -141,8 +150,6 @@ class GraphQL
             ]
         );
         
-        $self = $this;
-        
         return new Schema(
             [
                 'query'        => $query,
@@ -153,9 +160,7 @@ class GraphQL
                     ? $subscription
                     : null,
                 'types'        => $types,
-//                'typeLoader'   => function (string $name) use ($self) : Type {
-//                    return $self->type($name);
-//                },
+                'typeLoader'   => $typeLoader,
             ]
         );
     }
@@ -222,14 +227,16 @@ class GraphQL
     }
     
     /**
-     * @param       $query
-     * @param array $variables
-     * @param array $opts
+     * @param string     $query
+     * @param array|null $variables
+     * @param array|null $opts
      *
      * @return array|null
+     *
      * @throws SchemaNotFound
+     * @throws TypeNotFound
      */
-    public function query($query, array $variables = [], array $opts = []) : ?array
+    public function query(string $query, ?array $variables = [], ?array $opts = []) : ?array
     {
         $result = $this->queryAndReturnResult($query, $variables, $opts);
         
@@ -248,7 +255,7 @@ class GraphQL
     }
     
     /**
-     * @param mixed $query
+     * @param string     $query
      * @param array|null $variables
      * @param array|null $opts
      *
@@ -256,7 +263,7 @@ class GraphQL
      * @throws SchemaNotFound
      * @throws TypeNotFound
      */
-    public function queryAndReturnResult($query, ?array $variables = [], ?array $opts = []) : ExecutionResult
+    public function queryAndReturnResult(string $query, ?array $variables = [], ?array $opts = []) : ExecutionResult
     {
         $context = array_get($opts, 'context', null);
         $schemaName = array_get($opts, 'schema', null);
