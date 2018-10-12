@@ -2,6 +2,7 @@
 
 use Folklore\GraphQL\Support\Contracts\TypeConvertible;
 use GraphQL\GraphQL as GraphQLBase;
+use GraphQL\Type\Definition\Type;
 use GraphQL\Type\Schema;
 use GraphQL\Error\Error;
 
@@ -59,21 +60,21 @@ class GraphQL
 
         //Get the types either from the schema, or the global types.
         $types = [];
-        if (sizeof($schemaTypes)) {
-            foreach ($schemaTypes as $name => $type) {
-                $objectType = $this->objectType($type, is_numeric($name) ? []:[
-                    'name' => $name
-                ]);
-                $this->typesInstances[$name] = $objectType;
-                $types[] = $objectType;
-                
-                $this->addType($type, $name);
-            }
-        } else {
-            foreach ($this->types as $name => $type) {
-                $types[] = $this->type($name);
-            }
-        }
+//        if (sizeof($schemaTypes)) {
+//            foreach ($schemaTypes as $name => $type) {
+//                $objectType = $this->objectType($type, is_numeric($name) ? []:[
+//                    'name' => $name
+//                ]);
+//                $this->typesInstances[$name] = $objectType;
+//                $types[] = $objectType;
+//
+//                $this->addType($type, $name);
+//            }
+//        } else {
+//            foreach ($this->types as $name => $type) {
+//                $types[] = $this->type($name);
+//            }
+//        }
 
         $query = $this->objectType($schemaQuery, [
             'name' => 'Query'
@@ -86,14 +87,16 @@ class GraphQL
         $subscription = $this->objectType($schemaSubscription, [
             'name' => 'Subscription'
         ]);
-    
-        throw new \RuntimeException('test');
 
+        $self = $this;
         return new Schema([
             'query' => $query,
             'mutation' => !empty($schemaMutation) ? $mutation : null,
             'subscription' => !empty($schemaSubscription) ? $subscription : null,
-            'types' => $types
+            'types' => $types,
+            'typeLoader' => function (string $name) use ($self) : Type {
+                return $self->type($name);
+            },
         ]);
     }
 
