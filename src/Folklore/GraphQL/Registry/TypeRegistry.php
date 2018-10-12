@@ -39,12 +39,20 @@ class TypeRegistry implements TypeRegistryInterface
     /**
      * @inheritDoc
      */
-    public function set(Type $type, ?string $name = null) : TypeRegistryInterface
+    public function has(string $typeName) : bool
+    {
+        return \array_key_exists($typeName, $this->types);
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public function register(Type $type, ?string $name = null) : Type
     {
         $typeName = $name ?? $type->name;
         
         $this->types[$typeName] = $type;
         
-        return $this;
+        return $type;
     }
 }

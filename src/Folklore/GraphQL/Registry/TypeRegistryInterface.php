@@ -29,10 +29,21 @@ interface TypeRegistryInterface
     public function get(string $typeName) : Type;
     
     /**
+     * Determines if the a type by the given name is registered.
+     *
+     * @param string $typeName
+     *
+     * @return bool
+     */
+    public function has(string $typeName) : bool;
+    
+    /**
+     * Register a type in the registry, optionally using the provided name.
+     *
      * @param Type        $type
      * @param null|string $name
      *
-     * @return TypeRegistryInterface
+     * @return Type The newly registered type.
      */
-    public function set(Type $type, ?string $name = null) : TypeRegistryInterface;
+    public function register(Type $type, ?string $name = null) : Type;
 }

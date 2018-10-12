@@ -49,12 +49,7 @@ class GraphQL
     /**
      * @var array
      */
-    protected $types = [];
-    
-    /**
-     * @var array
-     */
-    protected $typesInstances = [];
+    private $types = [];
     
     /**
      * @param Application           $app
@@ -79,8 +74,6 @@ class GraphQL
             return $schema;
         }
         
-        $this->clearTypeInstances();
-        
         $schemaName = \is_string($schema)
             ? $schema
             : config('graphql.schema', 'default');
@@ -104,7 +97,6 @@ class GraphQL
         
         //Get the types either from the schema, or the global types.
         $types = [];
-        $typeLoader = null;
         if (sizeof($schemaTypes)) {
             foreach ($schemaTypes as $name => $type) {
                 $objectType = $this->objectType(
@@ -115,18 +107,11 @@ class GraphQL
                         'name' => $name,
                     ]
                 );
-                $this->typesInstances[$name] = $objectType;
+                $this->registry->register($objectType);
                 $types[] = $objectType;
                 
                 $this->addType($type, $name);
             }
-        } else {
-            foreach ($this->types as $name => $type) {
-                $types[] = $this->type($name);
-            }
-//            $typeLoader = function (string $name) : Type {
-//                return $this->type($name);
-//            };
         }
         
         $query = $this->objectType(
@@ -150,6 +135,10 @@ class GraphQL
             ]
         );
         
+        $typeLoader = function (string $name) : Type {
+            return $this->registry->get($name);
+        };
+        
         return new Schema(
             [
                 'query'        => $query,
@@ -166,22 +155,31 @@ class GraphQL
     }
     
     /**
-     * @param      $name
-     * @param bool $fresh
+     * @param string $name
      *
      * @return ObjectType|Type|mixed|null
      * @throws TypeNotFound
      */
-    public function type($name, $fresh = false)
+    public function type(string $name)
     {
         if (!isset($this->types[$name])) {
             throw new TypeNotFound('Type ' . $name . ' not found.');
         }
         
-        if (!$fresh && isset($this->typesInstances[$name])) {
-            return $this->typesInstances[$name];
-        }
-        
+        return $this->registry->has($name)
+            ? $this->registry->get($name)
+            : $this->registry->register($this->resolveType($name));
+    }
+    
+    /**
+     * @param string $name
+     *
+     * @return Type
+     *
+     * @throws TypeNotFound
+     */
+    private function resolveType(string $name) : Type
+    {
         $class = $this->types[$name];
         $type = $this->objectType(
             $class,
@@ -189,7 +187,6 @@ class GraphQL
                 'name' => $name,
             ]
         );
-        $this->typesInstances[$name] = $type;
         
         return $type;
     }
@@ -377,11 +374,6 @@ class GraphQL
         return $this->schemas;
     }
     
-    protected function clearTypeInstances() : void
-    {
-        $this->typesInstances = [];
-    }
-    
     /**
      * @param       $type
      * @param array $opts
@@ -502,11 +494,11 @@ class GraphQL
             $this->types['PaginationCursor'] = new PaginationCursorType();
         }
         
-        // If the instace type of the given pagination does not exists, create a new one!
-        if (!isset($this->typesInstances[$type->name . 'Pagination'])) {
-            $this->typesInstances[$type->name . 'Pagination'] = new PaginationType($type->name);
-        }
+        // If the instance type of the given pagination does not exists, create a new one.
+        $paginationName = "{$type->name}Pagination";
         
-        return $this->typesInstances[$type->name . 'Pagination'];
+        return $this->registry->has($paginationName)
+            ? $this->registry->get($paginationName)
+            : $this->registry->register(new PaginationType($type->name), $paginationName);
     }
 }
