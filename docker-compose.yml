@@ -1,0 +1,18 @@
+version: '2.1'
+
+services:
+    phpunit:
+        image: php:7.1-cli
+        volumes:
+        - .:/app
+        entrypoint: 'php vendor/bin/phpunit'
+        working_dir: '/app'
+        environment:
+            #            XDEBUG_CONFIG: idekey=PHPSTORM remote_host=192.168.1.167 remote_enable=1
+            XDEBUG_CONFIG: idekey=PHPSTORM remote_host=192.168.0.3 remote_enable=1
+            PHP_IDE_CONFIG: serverName=docker
+        networks:
+            - local
+
+networks:
+    local:

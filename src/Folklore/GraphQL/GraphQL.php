@@ -104,21 +104,21 @@ class GraphQL
         
         //Get the types either from the schema, or the global types.
         $types = [];
-//        if (sizeof($schemaTypes)) {
-//            foreach ($schemaTypes as $name => $type) {
-//                $objectType = $this->objectType($type, is_numeric($name) ? []:[
-//                    'name' => $name
-//                ]);
-//                $this->typesInstances[$name] = $objectType;
-//                $types[] = $objectType;
-//
-//                $this->addType($type, $name);
-//            }
-//        } else {
-//            foreach ($this->types as $name => $type) {
-//                $types[] = $this->type($name);
-//            }
-//        }
+        if (sizeof($schemaTypes)) {
+            foreach ($schemaTypes as $name => $type) {
+                $objectType = $this->objectType($type, is_numeric($name) ? []:[
+                    'name' => $name
+                ]);
+                $this->typesInstances[$name] = $objectType;
+                $types[] = $objectType;
+
+                $this->addType($type, $name);
+            }
+        } else {
+            foreach ($this->types as $name => $type) {
+                $types[] = $this->type($name);
+            }
+        }
         
         $query = $this->objectType(
             $schemaQuery,
@@ -153,9 +153,9 @@ class GraphQL
                     ? $subscription
                     : null,
                 'types'        => $types,
-                'typeLoader'   => function (string $name) use ($self) : Type {
-                    return $self->type($name);
-                },
+//                'typeLoader'   => function (string $name) use ($self) : Type {
+//                    return $self->type($name);
+//                },
             ]
         );
     }
@@ -249,14 +249,14 @@ class GraphQL
     
     /**
      * @param mixed $query
-     * @param array $variables
-     * @param array $opts
+     * @param array|null $variables
+     * @param array|null $opts
      *
      * @return ExecutionResult
      * @throws SchemaNotFound
      * @throws TypeNotFound
      */
-    public function queryAndReturnResult($query, array $variables = [], array $opts = []) : ExecutionResult
+    public function queryAndReturnResult($query, ?array $variables = [], ?array $opts = []) : ExecutionResult
     {
         $context = array_get($opts, 'context', null);
         $schemaName = array_get($opts, 'schema', null);

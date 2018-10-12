@@ -4,3 +4,4 @@ composer.lock
 /*_backup/
 .idea/*
 /coverage
+docker-compose.override.yml
