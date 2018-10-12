@@ -192,32 +192,46 @@ class GraphQL
     }
     
     /**
-     * @param       $type
-     * @param array $opts
+     * @param mixed $type
+     * @param array $options
      *
-     * @return ObjectType|Type|null
+     * @return Type
      * @throws TypeNotFound
      */
-    public function objectType($type, array $opts = [])
+    public function objectType($type, ?array $options = null) : Type
     {
+        $options = $options ?? [];
+        
         // If it's already an ObjectType, just update properties and return it.
         // If it's an array, assume it's an array of fields and build ObjectType
         // from it. Otherwise, build it from a string or an instance.
-        $objectType = null;
+        
         if ($type instanceof ObjectType) {
-            $objectType = $type;
-            foreach ($opts as $key => $value) {
-                if (property_exists($objectType, $key)) {
-                    $objectType->{$key} = $value;
-                }
-                if (isset($objectType->config[$key])) {
-                    $objectType->config[$key] = $value;
-                }
-            }
+            $objectType = $this->updateObjectTypeProperties($type, $options);
         } elseif (\is_array($type)) {
-            $objectType = $this->buildObjectTypeFromFields($type, $opts);
+            $objectType = $this->buildObjectTypeFromFields($type, $options);
         } else {
-            $objectType = $this->buildObjectTypeFromClass($type, $opts);
+            $objectType = $this->buildObjectTypeFromClass($type, $options);
+        }
+        
+        return $objectType;
+    }
+    
+    /**
+     * @param ObjectType $objectType
+     * @param array      $options
+     *
+     * @return ObjectType
+     */
+    private function updateObjectTypeProperties(ObjectType $objectType, array $options) : ObjectType
+    {
+        foreach ($options as $key => $value) {
+            if (\property_exists($objectType, $key)) {
+                $objectType->{$key} = $value;
+            }
+            if (isset($objectType->config[$key])) {
+                $objectType->config[$key] = $value;
+            }
         }
         
         return $objectType;
