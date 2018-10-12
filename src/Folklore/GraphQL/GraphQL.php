@@ -86,6 +86,8 @@ class GraphQL
         $subscription = $this->objectType($schemaSubscription, [
             'name' => 'Subscription'
         ]);
+    
+        throw new \RuntimeException('test');
 
         return new Schema([
             'query' => $query,
