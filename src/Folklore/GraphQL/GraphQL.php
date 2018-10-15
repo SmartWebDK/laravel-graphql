@@ -259,37 +259,19 @@ class GraphQL
      * @param array|null $variables
      * @param array|null $opts
      *
-     * @return array|null
+     * @return array
      *
      * @throws SchemaNotFound
      * @throws TypeNotFound
      */
-    public function query(string $query, ?array $variables = [], ?array $opts = []) : ?array
+    public function query(string $query, ?array $variables = null, ?array $opts = null) : array
     {
-        $result = $this->queryAndReturnResult($query, $variables, $opts);
+        $variables = $variables ?? [];
+        $opts = $opts ?? [];
         
-        return $this->formatQueryResult($result);
-    }
-    
-    /**
-     * @param ExecutionResult $result
-     *
-     * @return array
-     */
-    private function formatQueryResult(ExecutionResult $result) : array
-    {
-        if (!empty($result->errors)) {
-            $errorFormatter = $this->getErrorFormatter();
-            
-            return [
-                'data'   => $result->data,
-                'errors' => \array_map($errorFormatter, $result->errors),
-            ];
-        }
-        
-        return [
-            'data' => $result->data,
-        ];
+        return $this->queryAndReturnResult($query, $variables, $opts)
+                    ->setErrorFormatter($this->getErrorFormatter())
+                    ->toArray();
     }
     
     /**
@@ -309,19 +291,22 @@ class GraphQL
      * @throws SchemaNotFound
      * @throws TypeNotFound
      */
-    public function queryAndReturnResult(string $query, ?array $variables = [], ?array $opts = []) : ExecutionResult
+    public function queryAndReturnResult(string $query, ?array $variables = null, ?array $opts = null) : ExecutionResult
     {
+        $variables = $variables ?? [];
+        $opts = $opts ?? [];
+        
         $context = array_get($opts, 'context', null);
         $schemaName = array_get($opts, 'schema', null);
         $operationName = array_get($opts, 'operationName', null);
-        $defaultFieldResolver = config('graphql.defaultFieldResolver', null);
+        $defaultFieldResolver = $this->config->get('graphql.defaultFieldResolver', null);
         
         $additionalResolversSchemaName = \is_string($schemaName)
             ? $schemaName
-            : config('graphql.schema', 'default');
-        $additionalResolvers = config('graphql.resolvers.' . $additionalResolversSchemaName, []);
+            : $this->config->get('graphql.schema', 'default');
+        $additionalResolvers = $this->config->get('graphql.resolvers.' . $additionalResolversSchemaName, []);
         $root = \is_array($additionalResolvers)
-            ? array_merge(array_get($opts, 'root', []), $additionalResolvers)
+            ? \array_merge(array_get($opts, 'root', []), $additionalResolvers)
             : $additionalResolvers;
         
         $schema = $this->schema($schemaName);
@@ -424,14 +409,16 @@ class GraphQL
     }
     
     /**
-     * @param       $type
-     * @param array $opts
+     * @param mixed      $type
+     * @param array|null $opts
      *
      * @return Type
      * @throws TypeNotFound
      */
-    protected function buildObjectTypeFromClass($type, array $opts = []) : Type
+    protected function buildObjectTypeFromClass($type, array $opts = null) : Type
     {
+        $opts = $opts ?? [];
+        
         if (!\is_object($type)) {
             $type = $this->app->make($type);
         }

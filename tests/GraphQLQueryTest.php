@@ -157,9 +157,9 @@ class GraphQLQueryTest extends TestCase
     {
         $result = GraphQL::query($this->queries['examplesWithError']);
 
-        $this->assertArrayHasKey('data', $result);
+        $this->assertArrayNotHasKey('data', $result);
         $this->assertArrayHasKey('errors', $result);
-        $this->assertNull($result['data']);
+        
         $this->assertCount(1, $result['errors']);
         $this->assertArrayHasKey('message', $result['errors'][0]);
         $this->assertArrayHasKey('locations', $result['errors'][0]);
