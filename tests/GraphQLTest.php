@@ -1,6 +1,8 @@
 <?php
 
 use Folklore\GraphQL\Error\ErrorFormatter;
+use GraphQL\Error\ClientAware;
+use GraphQL\Executor\ExecutionResult;
 use GraphQL\Type\Schema;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\Type;
@@ -172,23 +174,35 @@ class GraphQLTest extends TestCase
         $this->assertArrayHasKey('test', $fields);
     }
     
-    public function testFormatError()
+    /**
+     * @throws Throwable
+     */
+    public function testFormatError() : void
     {
+        /**
+         * @var ExecutionResult $result
+         * @var ClientAware $error
+         */
         $result = GraphQL::queryAndReturnResult($this->queries['examplesWithError']);
-        $error = ErrorFormatter::formatError($result->errors[0]);
+        $error = $result->errors[0];
+        $formattedError = ErrorFormatter::formatError($result->errors[0]);
         
-        $this->assertInternalType('array', $error);
-        $this->assertArrayHasKey('message', $error);
-        $this->assertArrayHasKey('locations', $error);
-        $this->assertEquals($error, [
+        $this->assertArrayHasKey('message', $formattedError);
+        $this->assertArrayHasKey('locations', $formattedError);
+        $this->assertArrayHasKey('category', $formattedError);
+        
+        $expected = [
             'message' => 'Cannot query field "examplesQueryNotFound" on type "Query".',
+            'category' => $error->getCategory(),
             'locations' => [
                 [
                     'line' => 3,
                     'column' => 13
                 ]
             ]
-        ]);
+        ];
+        
+        $this->assertEquals($formattedError, $expected);
     }
     
     public function testFormatValidationError()

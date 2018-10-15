@@ -6,7 +6,6 @@ namespace Folklore\GraphQL\Error;
 
 use GraphQL\Error\Error;
 use GraphQL\Error\FormattedError;
-use GraphQL\Language\SourceLocation;
 
 /**
  * TODO: Missing class description.
@@ -31,16 +30,7 @@ class ErrorFormatter
      */
     public static function formatError(Error $e) : array
     {
-        $error = [
-            'message' => $e->getMessage(),
-        ];
-        
-        $error['locations'] = \array_map(
-            function (SourceLocation $location) {
-                return $location->toArray();
-            },
-            $e->getLocations()
-        );
+        $error = FormattedError::createFromException($e, self::getDebug());
         
         $previous = $e->getPrevious();
         
@@ -48,7 +38,7 @@ class ErrorFormatter
             $error['validation'] = $previous->getValidatorMessages();
         }
         
-        return FormattedError::addDebugEntries($error, $e, self::getDebug());
+        return $error;
     }
     
     /**
