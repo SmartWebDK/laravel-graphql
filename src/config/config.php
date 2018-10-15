@@ -195,7 +195,7 @@ return [
      *     'locations' => []
      * ]
      */
-    'error_formatter' => [\Folklore\GraphQL\GraphQL::class, 'formatError'],
+    'error_formatter' => [\Folklore\GraphQL\Error\ErrorFormatter::class, 'formatError'],
 
     /*
      * Options to limit the query complexity and depth. See the doc

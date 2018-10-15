@@ -1,5 +1,6 @@
 <?php
 
+use Folklore\GraphQL\Error\ErrorFormatter;
 use GraphQL\Type\Schema;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\Type;
@@ -174,7 +175,7 @@ class GraphQLTest extends TestCase
     public function testFormatError()
     {
         $result = GraphQL::queryAndReturnResult($this->queries['examplesWithError']);
-        $error = GraphQL::formatError($result->errors[0]);
+        $error = ErrorFormatter::formatError($result->errors[0]);
         
         $this->assertInternalType('array', $error);
         $this->assertArrayHasKey('message', $error);
@@ -198,7 +199,7 @@ class GraphQLTest extends TestCase
         $validator->fails();
         $validationError = with(new ValidationError('validation'))->setValidator($validator);
         $error = new Error('error', null, null, null, null, $validationError);
-        $error = GraphQL::formatError($error);
+        $error = ErrorFormatter::formatError($error);
         
         $this->assertInternalType('array', $error);
         $this->assertArrayHasKey('validation', $error);

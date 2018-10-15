@@ -4,7 +4,7 @@ declare(strict_types = 1);
 
 namespace Folklore\GraphQL;
 
-use Folklore\GraphQL\Error\ValidationError;
+use Folklore\GraphQL\Error\ErrorFormatter;
 use Folklore\GraphQL\Events\SchemaAdded;
 use Folklore\GraphQL\Events\TypeAdded;
 use Folklore\GraphQL\Exception\SchemaNotFound;
@@ -13,7 +13,6 @@ use Folklore\GraphQL\Registry\TypeRegistryInterface;
 use Folklore\GraphQL\Support\Contracts\TypeConvertible;
 use Folklore\GraphQL\Support\PaginationCursorType;
 use Folklore\GraphQL\Support\PaginationType;
-use GraphQL\Error\Error;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\GraphQL as GraphQLBase;
 use GraphQL\Type\Definition\ObjectType;
@@ -269,18 +268,36 @@ class GraphQL
     {
         $result = $this->queryAndReturnResult($query, $variables, $opts);
         
+        return $this->formatQueryResult($result);
+    }
+    
+    /**
+     * @param ExecutionResult $result
+     *
+     * @return array
+     */
+    private function formatQueryResult(ExecutionResult $result) : array
+    {
         if (!empty($result->errors)) {
-            $errorFormatter = config('graphql.error_formatter', [self::class, 'formatError']);
+            $errorFormatter = $this->getErrorFormatter();
             
             return [
                 'data'   => $result->data,
-                'errors' => array_map($errorFormatter, $result->errors),
-            ];
-        } else {
-            return [
-                'data' => $result->data,
+                'errors' => \array_map($errorFormatter, $result->errors),
             ];
         }
+        
+        return [
+            'data' => $result->data,
+        ];
+    }
+    
+    /**
+     * @return callable
+     */
+    private function getErrorFormatter() : callable
+    {
+        return $this->config->get('graphql.error_formatter', [ErrorFormatter::class, 'formatError']);
     }
     
     /**
@@ -483,35 +500,6 @@ class GraphQL
             : $this->app->make($class);
         
         return $type->name;
-    }
-    
-    /**
-     * @param Error $e
-     *
-     * @return array
-     */
-    public static function formatError(Error $e) : array
-    {
-        $error = [
-            'message' => $e->getMessage(),
-        ];
-        
-        $locations = $e->getLocations();
-        if (!empty($locations)) {
-            $error['locations'] = array_map(
-                function ($loc) {
-                    return $loc->toArray();
-                },
-                $locations
-            );
-        }
-        
-        $previous = $e->getPrevious();
-        if ($previous && $previous instanceof ValidationError) {
-            $error['validation'] = $previous->getValidatorMessages();
-        }
-        
-        return $error;
     }
     
     /**
