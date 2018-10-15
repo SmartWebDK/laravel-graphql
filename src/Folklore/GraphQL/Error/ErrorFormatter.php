@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Folklore\GraphQL\Error;
 
 use GraphQL\Error\Error;
+use GraphQL\Error\FormattedError;
 use GraphQL\Language\SourceLocation;
 
 /**
@@ -18,9 +19,15 @@ class ErrorFormatter
 {
     
     /**
+     * @var int|bool
+     */
+    private static $debug = false;
+    
+    /**
      * @param Error $e
      *
      * @return array
+     * @throws \Throwable
      */
     public static function formatError(Error $e) : array
     {
@@ -41,6 +48,22 @@ class ErrorFormatter
             $error['validation'] = $previous->getValidatorMessages();
         }
         
-        return $error;
+        return FormattedError::addDebugEntries($error, $e, self::getDebug());
+    }
+    
+    /**
+     * @return bool|int
+     */
+    public static function getDebug()
+    {
+        return self::$debug;
+    }
+    
+    /**
+     * @param bool|int $debug
+     */
+    public static function setDebug($debug) : void
+    {
+        self::$debug = $debug;
     }
 }
