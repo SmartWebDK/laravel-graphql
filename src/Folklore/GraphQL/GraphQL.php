@@ -165,7 +165,7 @@ class GraphQL
             
             $registeredTypes[] = $objectType;
             
-            $this->addType($type, $name);
+            $this->addType($type);
         }
         
         return $registeredTypes;
@@ -332,7 +332,7 @@ class GraphQL
         foreach ($types as $name => $type) {
             $this->addType(
                 $type,
-                is_numeric($name)
+                \is_numeric($name)
                     ? null
                     : $name
             );
@@ -340,10 +340,10 @@ class GraphQL
     }
     
     /**
-     * @param      $class
-     * @param null $name
+     * @param mixed       $class
+     * @param string|null $name
      */
-    public function addType($class, $name = null) : void
+    public function addType($class, ?string $name = null) : void
     {
         $name = $this->getTypeName($class, $name);
         $this->types[$name] = $class;
@@ -410,14 +410,14 @@ class GraphQL
     
     /**
      * @param mixed      $type
-     * @param array|null $opts
+     * @param array|null $config
      *
      * @return Type
      * @throws TypeNotFound
      */
-    protected function buildObjectTypeFromClass($type, array $opts = null) : Type
+    protected function buildObjectTypeFromClass($type, array $config = null) : Type
     {
-        $opts = $opts ?? [];
+        $config = $config ?? [];
         
         if (!\is_object($type)) {
             $type = $this->app->make($type);
@@ -427,7 +427,7 @@ class GraphQL
             throw new TypeNotFound(sprintf('Unable to convert %s to a GraphQL type', \get_class($type)));
         }
         
-        foreach ($opts as $key => $value) {
+        foreach ($config as $key => $value) {
             $type->{$key} = $value;
         }
         
@@ -435,14 +435,17 @@ class GraphQL
     }
     
     /**
-     * @param       $fields
-     * @param array $opts
+     * @param mixed      $fields
+     * @param array|null $config
      *
      * @return ObjectType
      */
-    protected function buildObjectTypeFromFields($fields, array $opts = []) : ObjectType
+    protected function buildObjectTypeFromFields($fields, array $config = null) : ObjectType
     {
+        $config = $config ?? [];
+        
         $typeFields = [];
+        
         foreach ($fields as $name => $field) {
             if (\is_string($field)) {
                 $field = $this->app->make($field);
@@ -465,28 +468,33 @@ class GraphQL
                 [
                     'fields' => $typeFields,
                 ],
-                $opts
+                $config
             )
         );
     }
     
     /**
-     * @param      $class
-     * @param null $name
+     * @param mixed       $class
+     * @param string|null $name
      *
-     * @return null
+     * @return string
      */
-    protected function getTypeName($class, $name = null)
+    protected function getTypeName($class, ?string $name = null) : string
     {
-        if ($name) {
-            return $name;
-        }
-        
-        $type = \is_object($class)
+        return $name
+            ?: $this->getTypeFromClass($class)->name;
+    }
+    
+    /**
+     * @param $class
+     *
+     * @return mixed
+     */
+    private function getTypeFromClass($class)
+    {
+        return \is_object($class)
             ? $class
             : $this->app->make($class);
-        
-        return $type->name;
     }
     
     /**
