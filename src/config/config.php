@@ -204,9 +204,9 @@ return [
      * Possible values are (with constants referencing \GraphQL\Error\Debug::{constant}):
      *   false:     No additional debug information
      *   true:      'debugMessage' with the exception message is added
-     *   INCLUDE_DEBUG_MESSAGE:'debugMessage' with the exception message is added
-     *   INCLUDE_TRACE:'trace' containing a formatted trace from the original exception
-     *   RETHROW_INTERNAL_EXCEPTIONS: Causes the query to throw if there was an exception during resolution
+     *   INCLUDE_DEBUG_MESSAGE(1):'debugMessage' with the exception message is added
+     *   INCLUDE_TRACE(2):'trace' containing a formatted trace from the original exception
+     *   RETHROW_INTERNAL_EXCEPTIONS(4): Causes the query to throw if there was an exception during resolution
      */
     'debug_mode' => \env('GRAPHQL_DEBUG_MODE', false),
 
