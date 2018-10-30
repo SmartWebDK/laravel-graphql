@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Folklore\GraphQL;
 
 use Folklore\GraphQL\Error\ErrorFormatter;
+use Folklore\GraphQL\Error\InvalidConfigError;
 use Folklore\GraphQL\Events\SchemaAdded;
 use Folklore\GraphQL\Events\TypeAdded;
 use Folklore\GraphQL\Exception\SchemaNotFound;
@@ -18,6 +19,7 @@ use GraphQL\GraphQL as GraphQLBase;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\Type;
 use GraphQL\Type\Schema;
+use GraphQL\Utils\Utils;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Arr;
@@ -279,11 +281,20 @@ class GraphQL
      */
     private function getErrorFormatter() : callable
     {
-        $formatter = $this->config->get('graphql.error_formatter', [ErrorFormatter::class, 'formatError']);
+        static $defaultFormatter = [ErrorFormatter::class, 'formatError'];
         
-        return \is_array($formatter)
-            ? \Closure::fromCallable($formatter)
-            : $formatter;
+        $formatter = $this->config->get('graphql.error_formatter', $defaultFormatter);
+        
+        if (!\is_callable($formatter)) {
+            throw new InvalidConfigError(
+                \sprintf(
+                    'The configured error formatter must be a callable. Was: %s',
+                    Utils::printSafe($formatter)
+                )
+            );
+        }
+        
+        return $formatter;
     }
     
     /**
