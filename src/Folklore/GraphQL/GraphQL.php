@@ -279,7 +279,11 @@ class GraphQL
      */
     private function getErrorFormatter() : callable
     {
-        return $this->config->get('graphql.error_formatter', [ErrorFormatter::class, 'formatError']);
+        $formatter = $this->config->get('graphql.error_formatter', [ErrorFormatter::class, 'formatError']);
+        
+        return \is_array($formatter)
+            ? \Closure::fromCallable($formatter)
+            : $formatter;
     }
     
     /**
