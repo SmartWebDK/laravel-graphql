@@ -1,5 +1,5 @@
 {
-    "name": "folklore/graphql",
+    "name": "smartweb/laravel-graphql",
     "description": "Facebook GraphQL for Laravel",
     "keywords": [
         "framework",
@@ -17,6 +17,11 @@
             "name": "David Mongeau-Petitpas",
             "email": "dmp@atelierfolklore.ca",
             "homepage": "http://mongo.ca",
+            "role": "Developer"
+        },
+        {
+            "name": "Nicolai Agersbæk",
+            "email": "na@smartweb.dk",
             "role": "Developer"
         }
     ],
