@@ -196,6 +196,19 @@ return [
      * ]
      */
     'error_formatter' => [\Folklore\GraphQL\Error\ErrorFormatter::class, 'formatError'],
+    
+    /*
+     * Debug mode determines the amount of information contained in a response
+     * when an error occurs.
+     *
+     * Possible values are (with constants referencing \GraphQL\Error\Debug::{constant}):
+     *   false:     No additional debug information
+     *   true:      'debugMessage' with the exception message is added
+     *   INCLUDE_DEBUG_MESSAGE:'debugMessage' with the exception message is added
+     *   INCLUDE_TRACE:'trace' containing a formatted trace from the original exception
+     *   RETHROW_INTERNAL_EXCEPTIONS: Causes the query to throw if there was an exception during resolution
+     */
+    'debug_mode' => \env('GRAPHQL_DEBUG_MODE', false),
 
     /*
      * Options to limit the query complexity and depth. See the doc

@@ -8,7 +8,7 @@ use GraphQL\Error\Error;
 use GraphQL\Error\FormattedError;
 
 /**
- * TODO: Missing class description.
+ * Provides error formatting with support for setting debug mode.
  *
  * @author Nicolai Agersbæk <na@smartweb.dk>
  *
@@ -18,9 +18,19 @@ class ErrorFormatter
 {
     
     /**
+     * Configuration key used to store debug mode configuration settings.
+     */
+    public const DEBUG_MODE_CONFIG_KEY = 'graphql.debug_mode';
+    
+    /**
+     * Default value used for debug mode.
+     */
+    private const DEBUG_MODE_DEFAULT = false;
+    
+    /**
      * @var int|bool
      */
-    private static $debug = false;
+    private static $debug;
     
     /**
      * @param Error $e
@@ -46,7 +56,15 @@ class ErrorFormatter
      */
     public static function getDebug()
     {
-        return self::$debug;
+        return self::$debug ?? self::$debug = self::getDebugModeFromConfig();
+    }
+    
+    /**
+     * @return int|bool
+     */
+    private static function getDebugModeFromConfig()
+    {
+        return \config(self::DEBUG_MODE_CONFIG_KEY, self::DEBUG_MODE_DEFAULT);
     }
     
     /**
