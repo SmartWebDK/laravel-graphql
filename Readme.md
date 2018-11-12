@@ -4,9 +4,7 @@ Use Facebook GraphQL with Laravel 5 or Lumen. It is based on the PHP implementat
 
 This package is compatible with Eloquent model (or any other data source). See the example below.
 
-[![Latest Stable Version](https://poser.pugx.org/folklore/graphql/v/stable.svg)](https://packagist.org/packages/folklore/graphql)
-[![Build Status](https://travis-ci.org/Folkloreatelier/laravel-graphql.png?branch=master)](https://travis-ci.org/Folkloreatelier/laravel-graphql)
-[![Total Downloads](https://poser.pugx.org/folklore/graphql/downloads.svg)](https://packagist.org/packages/folklore/graphql)
+[![Build Status](https://travis-ci.org/SmartWebDK/laravel-graphql.svg?branch=develop)](https://travis-ci.org/SmartWebDK/laravel-graphql)
 
 ----
 ### To use laravel-graphql with Relay, check the [feature/relay](https://github.com/Folkloreatelier/laravel-graphql/tree/feature/relay) branch.
@@ -14,11 +12,9 @@ This package is compatible with Eloquent model (or any other data source). See t
 
 ## Installation
 
-Version 1.0 is released. If you are upgrading from older version, you can check [Upgrade to 1.0](docs/upgrade.md).
-
 #### Dependencies:
 
-* [Laravel 5.x](https://github.com/laravel/laravel) or [Lumen](https://github.com/laravel/lumen)
+* [Laravel 5.x](https://github.com/laravel/laravel)
 * [GraphQL PHP](https://github.com/webonyx/graphql-php)
 
 
@@ -26,7 +22,7 @@ Version 1.0 is released. If you are upgrading from older version, you can check 
 ```json
 {
   "require": {
-    "folklore/graphql": "~1.0.0"
+    "smartweb/laravel-graphql": "~1.0.0"
   }
 }
 ```
@@ -56,71 +52,6 @@ $ php artisan vendor:publish --provider="Folklore\GraphQL\ServiceProvider"
 ```
 config/graphql.php
 ```
-
-### Laravel <= 5.4.x
-
-**1-** Add the service provider to your `config/app.php` file
-```php
-Folklore\GraphQL\ServiceProvider::class,
-```
-
-**2-** Add the facade to your `config/app.php` file
-```php
-'GraphQL' => Folklore\GraphQL\Support\Facades\GraphQL::class,
-```
-
-**3-** Publish the configuration file
-
-```bash
-$ php artisan vendor:publish --provider="Folklore\GraphQL\ServiceProvider"
-```
-
-**4-** Review the configuration file
-
-```
-config/graphql.php
-```
-
-### Lumen
-
-**1-** Load the service provider in `bootstrap/app.php`
-```php
-$app->register(Folklore\GraphQL\LumenServiceProvider::class);
-```
-
-**2-** For using the facade you have to uncomment the line `$app->withFacades();` in `bootstrap/app.php`
-
-After uncommenting this line you have the `GraphQL` facade enabled
-
-```php
-$app->withFacades();
-```
-
-**3-** Publish the configuration file
-
-```bash
-$ php artisan graphql:publish
-```
-
-**4-** Load configuration file in `bootstrap/app.php`
-
-*Important*: this command needs to be executed before the registration of the service provider
-
-```php
-$app->configure('graphql');
-...
-$app->register(Folklore\GraphQL\LumenServiceProvider::class)
-```
-
-**5-** Review the configuration file
-
-```
-config/graphql.php
-```
-
-## Documentation
-
-- [Upgrade to 1.0](docs/upgrade.md)
 
 ## Usage
 
