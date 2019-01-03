@@ -5,6 +5,7 @@ Use Facebook GraphQL with Laravel 5 or Lumen. It is based on the PHP implementat
 This package is compatible with Eloquent model (or any other data source). See the example below.
 
 [![Build Status](https://travis-ci.org/SmartWebDK/laravel-graphql.svg?branch=develop)](https://travis-ci.org/SmartWebDK/laravel-graphql)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FSmartWebDK%2Flaravel-graphql.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2FSmartWebDK%2Flaravel-graphql?ref=badge_shield)
 
 ----
 ### To use laravel-graphql with Relay, check the [feature/relay](https://github.com/Folkloreatelier/laravel-graphql/tree/feature/relay) branch.
@@ -458,3 +459,7 @@ When you execute a mutation, it will returns the validation errors. Since GraphQ
   ]
 }
 ```
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2FSmartWebDK%2Flaravel-graphql.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2FSmartWebDK%2Flaravel-graphql?ref=badge_large)
