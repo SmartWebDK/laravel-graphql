@@ -6,6 +6,7 @@ namespace Folklore\GraphQL\Error;
 
 use GraphQL\Error\Error;
 use GraphQL\Error\FormattedError;
+use Psr\Log\LoggerInterface;
 
 /**
  * Provides error formatting with support for setting debug mode.
@@ -33,14 +34,57 @@ class ErrorFormatter
     private static $debug;
     
     /**
+     * @var self[]
+     */
+    private static $instance;
+    
+    /**
+     * @var LoggerInterface
+     */
+    private $logger;
+    
+    /**
+     * @param LoggerInterface|null $logger
+     */
+    public function __construct(?LoggerInterface $logger)
+    {
+        $this->logger = $logger ?? \app(LoggerInterface::class);
+    }
+    
+    /**
+     * @param LoggerInterface|null $logger
+     *
+     * @return ErrorFormatter
+     */
+    public static function instance(?LoggerInterface $logger = null) : self
+    {
+        $loggerId = self::getLoggerId($logger);
+        
+        return self::$instance[$loggerId] ?? self::$instance[$loggerId] = new self($logger);
+    }
+    
+    /**
+     * @param LoggerInterface|null $logger
+     *
+     * @return string
+     */
+    private static function getLoggerId(?LoggerInterface $logger) : string
+    {
+        return $logger === null
+            ? 'NULL'
+            : \spl_object_hash($logger);
+    }
+    
+    /**
      * @param Error $e
      *
      * @return array
      * @throws \Throwable
      */
-    public static function formatError(Error $e) : array
+    public function doFormatError(Error $e) : array
     {
         $error = FormattedError::createFromException($e, self::getDebug());
+        $this->logError($e);
         
         $previous = $e->getPrevious();
         
@@ -49,6 +93,25 @@ class ErrorFormatter
         }
         
         return $error;
+    }
+    
+    /**
+     * @param Error $error
+     */
+    private function logError(Error $error) : void
+    {
+        $this->logger->error($error->getMessage(), ['exception' => $error]);
+    }
+    
+    /**
+     * @param Error $e
+     *
+     * @return array
+     * @throws \Throwable
+     */
+    public static function formatError(Error $e) : array
+    {
+        return self::instance()->doFormatError($e);
     }
     
     /**
