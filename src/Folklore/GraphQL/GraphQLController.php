@@ -4,7 +4,9 @@ declare(strict_types = 1);
 
 namespace Folklore\GraphQL;
 
+use Folklore\GraphQL\Events\RequestResolved;
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Routing\ResponseFactory;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
@@ -38,20 +40,29 @@ class GraphQLController extends Controller
     private $viewFactory;
     
     /**
+     * @var Dispatcher
+     */
+    private $dispatcher;
+    
+    /**
      * @param Request         $request
      * @param Repository      $config
      * @param ResponseFactory $responseFactory
      * @param Factory         $viewFactory
+     * @param Dispatcher      $dispatcher
      */
     public function __construct(
         Request $request,
         Repository $config,
         ResponseFactory $responseFactory,
-        Factory $viewFactory
+        Factory $viewFactory,
+        Dispatcher $dispatcher
     ) {
         $this->config = $config;
         $this->responseFactory = $responseFactory;
         $this->viewFactory = $viewFactory;
+        $this->dispatcher = $dispatcher;
+        
         $route = $request->route();
         
         // Prevent schema middleware from being applied to 'graphiql' routes
@@ -173,6 +184,8 @@ class GraphQLController extends Controller
         if (!$authorized) {
             return $this->responseFactory->json($data, 403, $headers, $options);
         }
+    
+        $this->dispatcher->dispatch(new RequestResolved($graphQLSchema, $errors));
         
         return $this->responseFactory->json($data, 200, $headers, $options);
     }
@@ -214,7 +227,7 @@ class GraphQLController extends Controller
         $operationName = array_get($input, 'operationName');
         $context = $this->queryContext($query, $variables, $schema);
         
-        return app('graphql')->query(
+        return \app('graphql')->query(
             $query,
             $variables,
             \compact('context', 'schema', 'operationName')
