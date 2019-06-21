@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Folklore\GraphQL;
 
 use Folklore\GraphQL\Events\RequestResolved;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Routing\ResponseFactory;
@@ -13,9 +14,11 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Arr;
+use Psr\Log\LoggerInterface;
 
 /**
- * TODO: Missing class description.
+ * Main controller for Laravel GraphQL.
  *
  * @author Nicolai Agersbæk <na@smartweb.dk>
  *
@@ -23,6 +26,9 @@ use Illuminate\Routing\Route;
  */
 class GraphQLController extends Controller
 {
+    
+    // FIXME: Clean up logic!
+    // FIXME: Use custom Request class to handle isolation data, e.g. input variables and query string!
     
     /**
      * @var Repository
@@ -45,23 +51,31 @@ class GraphQLController extends Controller
     private $dispatcher;
     
     /**
+     * @var LoggerInterface
+     */
+    private $logger;
+    
+    /**
      * @param Request         $request
      * @param Repository      $config
      * @param ResponseFactory $responseFactory
      * @param Factory         $viewFactory
      * @param Dispatcher      $dispatcher
+     * @param LoggerInterface $logger
      */
     public function __construct(
         Request $request,
         Repository $config,
         ResponseFactory $responseFactory,
         Factory $viewFactory,
-        Dispatcher $dispatcher
+        Dispatcher $dispatcher,
+        LoggerInterface $logger
     ) {
         $this->config = $config;
         $this->responseFactory = $responseFactory;
         $this->viewFactory = $viewFactory;
         $this->dispatcher = $dispatcher;
+        $this->logger = $logger;
         
         $route = $request->route();
         
@@ -71,8 +85,8 @@ class GraphQLController extends Controller
         }
         
         $schema = $this->getSchemaFromRoute($route);
-        
-        $middleware = $this->config->get('graphql.middleware_schema.' . $schema, null);
+    
+        $middleware = $this->config->get('graphql.middleware_schema.' . $schema);
         
         if ($middleware) {
             $this->middleware($middleware);
@@ -136,7 +150,7 @@ class GraphQLController extends Controller
         $schema = $defaultSchema;
         
         if (\is_array($route)) {
-            $schema = array_get($route, '2.' . $prefix . '_schema', $defaultSchema);
+            $schema = Arr::get($route, '2.' . $prefix . '_schema', $defaultSchema);
         } elseif (\is_object($route)) {
             $schema = $route->parameter($prefix . '_schema', $defaultSchema);
         }
@@ -156,27 +170,20 @@ class GraphQLController extends Controller
         $inputs = $request->all();
         
         $graphQLSchema = $graphql_schema ?? $this->config->get('graphql.schema');
-        
-        if (!$isBatch) {
-            $data = $this->executeQuery($graphQLSchema, $inputs);
-        } else {
-            $data = [];
-            foreach ($inputs as $input) {
-                $data[] = $this->executeQuery($graphQLSchema, $input);
-            }
-        }
+    
+        $data = $this->executeQuery($request, $graphQLSchema);
         
         $headers = $this->config->get('graphql.headers', []);
         $options = $this->config->get('graphql.json_encoding_options', 0);
         
         $errors = !$isBatch
-            ? array_get($data, 'errors', [])
+            ? Arr::get($data, 'errors', [])
             : [];
         
         $authorized = \array_reduce(
             $errors,
-            function ($authorized, $error) {
-                return !(!$authorized || \array_get($error, 'message') === 'Unauthorized');
+            static function ($authorized, $error) {
+                return !(!$authorized || Arr::get($error, 'message') === 'Unauthorized');
             },
             true
         );
@@ -185,7 +192,14 @@ class GraphQLController extends Controller
             return $this->responseFactory->json($data, 403, $headers, $options);
         }
     
-        $this->dispatcher->dispatch(new RequestResolved($graphQLSchema, $errors));
+        $this->dispatcher->dispatch(
+            new RequestResolved(
+                $graphQLSchema,
+                $this->getQueryString($inputs),
+                $this->getVariables($inputs),
+                $errors
+            )
+        );
         
         return $this->responseFactory->json($data, 200, $headers, $options);
     }
@@ -209,23 +223,43 @@ class GraphQLController extends Controller
     }
     
     /**
-     * @param $schema
-     * @param $input
+     * @param Request $request
+     * @param string  $schema
      *
-     * @return mixed
+     * @return array
      */
-    protected function executeQuery($schema, $input)
+    private function executeQuery(Request $request, string $schema) : array
     {
-        $variablesInputName = $this->config->get('graphql.variables_input_name', 'variables');
-        $query = array_get($input, 'query');
-        $variables = array_get($input, $variablesInputName);
-        
-        if (\is_string($variables)) {
-            $variables = json_decode($variables, true);
+        $isBatch = !$request->has('query');
+        $inputs = $request->all();
+        $context = $this->queryContext();
+    
+        if (!$isBatch) {
+            return $this->runQuery($inputs, $schema, $context);
         }
+    
+        $data = [];
+    
+        foreach ($inputs as $input) {
+            $data[] = $this->runQuery($input, $schema, $context);
+        }
+    
+        return $data;
+    }
+    
+    /**
+     * @param array                $input
+     * @param string               $schema
+     * @param Authenticatable|null $context
+     *
+     * @return array
+     */
+    private function runQuery(array $input, string $schema, ?Authenticatable $context) : array
+    {
+        $query = $this->getQueryString($input);
+        $variables = $this->getVariables($input);
         
-        $operationName = array_get($input, 'operationName');
-        $context = $this->queryContext($query, $variables, $schema);
+        $operationName = Arr::get($input, 'operationName');
         
         return \app('graphql')->query(
             $query,
@@ -235,17 +269,41 @@ class GraphQLController extends Controller
     }
     
     /**
-     * @param $query
-     * @param $variables
-     * @param $schema
+     * @param array $input
      *
-     * @return mixed
+     * @return string
      */
-    protected function queryContext($query, $variables, $schema)
+    private function getQueryString(array $input) : string
+    {
+        return Arr::get($input, 'query');
+    }
+    
+    /**
+     * @param array $input
+     *
+     * @return array
+     */
+    private function getVariables(array $input) : array
+    {
+        $variablesInputName = $this->config->get('graphql.variables_input_name', 'variables');
+        $variables = Arr::get($input, $variablesInputName);
+        
+        if (\is_string($variables)) {
+            $variables = \json_decode($variables, true);
+        }
+        
+        return $variables;
+    }
+    
+    /**
+     * @return Authenticatable|null
+     */
+    private function queryContext() : ?Authenticatable
     {
         try {
-            $context = app('auth')->user();
-        } catch (\Exception $e) {
+            $context = \app('auth')->user();
+        } catch (\Exception $exception) {
+            $this->logger->error($exception->getMessage(), \compact('exception'));
             $context = null;
         }
         
