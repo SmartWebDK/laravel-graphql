@@ -235,13 +235,13 @@ class GraphQLController extends Controller
         $context = $this->queryContext();
     
         if (!$isBatch) {
-            return $this->runQuery($inputs, $schema, $context);
+            return $this->runQuery($inputs, $this->getQueryString($inputs), $schema, $context);
         }
     
         $data = [];
     
         foreach ($inputs as $input) {
-            $data[] = $this->runQuery($input, $schema, $context);
+            $data[] = $this->runQuery($input, $this->getQueryString($inputs), $schema, $context);
         }
     
         return $data;
@@ -249,14 +249,14 @@ class GraphQLController extends Controller
     
     /**
      * @param array                $input
+     * @param string               $query
      * @param string               $schema
      * @param Authenticatable|null $context
      *
      * @return array
      */
-    private function runQuery(array $input, string $schema, ?Authenticatable $context) : array
+    private function runQuery(array $input, string $query, string $schema, ?Authenticatable $context) : array
     {
-        $query = $this->getQueryString($input);
         $variables = $this->getVariables($input);
         
         $operationName = Arr::get($input, 'operationName');
