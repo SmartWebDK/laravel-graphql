@@ -281,9 +281,9 @@ class GraphQLController extends Controller
     /**
      * @param array $input
      *
-     * @return array|null
+     * @return array
      */
-    private function getVariables(array $input) : ?array
+    private function getVariables(array $input) : array
     {
         $variablesInputName = $this->config->get('graphql.variables_input_name', 'variables');
         $variables = Arr::get($input, $variablesInputName);
