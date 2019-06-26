@@ -241,7 +241,7 @@ class GraphQLController extends Controller
         $data = [];
     
         foreach ($inputs as $input) {
-            $data[] = $this->runQuery($input, $this->getQueryString($input), $schema, $context);
+            $data[] = $this->runQuery($input, $this->getQueryString($inputs), $schema, $context);
         }
     
         return $data;
