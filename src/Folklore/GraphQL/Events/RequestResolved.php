@@ -25,7 +25,7 @@ class RequestResolved
     private $query;
     
     /**
-     * @var array|null
+     * @var array
      */
     private $variables;
     
@@ -35,12 +35,12 @@ class RequestResolved
     private $errors;
     
     /**
-     * @param string     $schemaName
-     * @param string     $query
-     * @param array|null $variables
-     * @param array      $errors
+     * @param string $schemaName
+     * @param string $query
+     * @param array  $variables
+     * @param array  $errors
      */
-    public function __construct(string $schemaName, string $query, ?array $variables, array $errors)
+    public function __construct(string $schemaName, string $query, array $variables, array $errors)
     {
         $this->schemaName = $schemaName;
         $this->query = $query;
@@ -65,9 +65,9 @@ class RequestResolved
     }
     
     /**
-     * @return array|null
+     * @return array
      */
-    public function getVariables() : ?array
+    public function getVariables() : array
     {
         return $this->variables;
     }
