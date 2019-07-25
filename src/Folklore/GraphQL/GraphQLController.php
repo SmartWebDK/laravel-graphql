@@ -10,6 +10,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Routing\ResponseFactory;
 use Illuminate\Contracts\View\Factory;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
@@ -45,23 +46,31 @@ class GraphQLController extends Controller
     private $dispatcher;
     
     /**
-     * @param Request         $request
-     * @param Repository      $config
-     * @param ResponseFactory $responseFactory
-     * @param Factory         $viewFactory
-     * @param Dispatcher      $dispatcher
+     * @var ConnectionInterface
+     */
+    private $connection;
+    
+    /**
+     * @param Request             $request
+     * @param Repository          $config
+     * @param ResponseFactory     $responseFactory
+     * @param Factory             $viewFactory
+     * @param Dispatcher          $dispatcher
+     * @param ConnectionInterface $connection
      */
     public function __construct(
         Request $request,
         Repository $config,
         ResponseFactory $responseFactory,
         Factory $viewFactory,
-        Dispatcher $dispatcher
+        Dispatcher $dispatcher,
+        ConnectionInterface $connection
     ) {
         $this->config = $config;
         $this->responseFactory = $responseFactory;
         $this->viewFactory = $viewFactory;
         $this->dispatcher = $dispatcher;
+        $this->connection = $connection;
         
         $route = $request->route();
         
@@ -156,6 +165,8 @@ class GraphQLController extends Controller
         $inputs = $request->all();
         
         $graphQLSchema = $graphql_schema ?? $this->config->get('graphql.schema');
+    
+        $this->connection->beginTransaction();
         
         if (!$isBatch) {
             $data = $this->executeQuery($graphQLSchema, $inputs);
@@ -180,6 +191,12 @@ class GraphQLController extends Controller
             },
             true
         );
+    
+        if ($errors !== []) {
+            $this->connection->rollBack();
+        } else {
+            $this->connection->commit();
+        }
         
         if (!$authorized) {
             return $this->responseFactory->json($data, 403, $headers, $options);
