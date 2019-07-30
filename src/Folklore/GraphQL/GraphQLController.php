@@ -17,7 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 
 /**
- * TODO: Missing class description.
+ * Controller handling HTTP requests for the GraphQL end-points.
  *
  * @author Nicolai Agersbæk <na@smartweb.dk>
  *

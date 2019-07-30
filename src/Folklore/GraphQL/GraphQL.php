@@ -25,7 +25,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Arr;
 
 /**
- * TODO: Missing class description.
+ * Provides centralized access to GraphQL schemas and types.
  *
  * @author Nicolai Agersbæk <na@smartweb.dk>
  *
