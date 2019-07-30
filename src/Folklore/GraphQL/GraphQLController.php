@@ -5,6 +5,7 @@ declare(strict_types = 1);
 namespace Folklore\GraphQL;
 
 use Folklore\GraphQL\Events\RequestResolved;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Routing\ResponseFactory;
@@ -46,31 +47,23 @@ class GraphQLController extends Controller
     private $dispatcher;
     
     /**
-     * @var ConnectionInterface
-     */
-    private $connection;
-    
-    /**
-     * @param Request             $request
-     * @param Repository          $config
-     * @param ResponseFactory     $responseFactory
-     * @param Factory             $viewFactory
-     * @param Dispatcher          $dispatcher
-     * @param ConnectionInterface $connection
+     * @param Request         $request
+     * @param Repository      $config
+     * @param ResponseFactory $responseFactory
+     * @param Factory         $viewFactory
+     * @param Dispatcher      $dispatcher
      */
     public function __construct(
         Request $request,
         Repository $config,
         ResponseFactory $responseFactory,
         Factory $viewFactory,
-        Dispatcher $dispatcher,
-        ConnectionInterface $connection
+        Dispatcher $dispatcher
     ) {
         $this->config = $config;
         $this->responseFactory = $responseFactory;
         $this->viewFactory = $viewFactory;
         $this->dispatcher = $dispatcher;
-        $this->connection = $connection;
         
         $route = $request->route();
         
@@ -161,12 +154,15 @@ class GraphQLController extends Controller
      */
     public function query(Request $request, ?string $graphql_schema = null) : JsonResponse
     {
+        /** @var ConnectionInterface $connection */
+        $connection = Container::getInstance()->get(ConnectionInterface::class);
+        
         $isBatch = !$request->has('query');
         $inputs = $request->all();
         
         $graphQLSchema = $graphql_schema ?? $this->config->get('graphql.schema');
     
-        $this->connection->beginTransaction();
+        $connection->beginTransaction();
         
         if (!$isBatch) {
             $data = $this->executeQuery($graphQLSchema, $inputs);
@@ -193,9 +189,9 @@ class GraphQLController extends Controller
         );
     
         if ($errors !== []) {
-            $this->connection->rollBack();
+            $connection->rollBack();
         } else {
-            $this->connection->commit();
+            $connection->commit();
         }
         
         if (!$authorized) {
