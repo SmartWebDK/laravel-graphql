@@ -10,12 +10,21 @@ use GraphQL\Validator\DocumentValidator;
 use GraphQL\Validator\Rules\DisableIntrospection;
 use GraphQL\Validator\Rules\QueryComplexity;
 use GraphQL\Validator\Rules\QueryDepth;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider as BaseServiceProvider;
 
+/**
+ * Laravel-compatible service provider.
+ *
+ * @author Nicolai Agersbæk <na@zitcom.dk>
+ */
 class ServiceProvider extends BaseServiceProvider
 {
     
+    /**
+     * @return mixed
+     */
     protected function getRouter()
     {
         return $this->app['router'];
@@ -23,8 +32,6 @@ class ServiceProvider extends BaseServiceProvider
     
     /**
      * Bootstrap any application services.
-     *
-     * @return void
      */
     public function boot() : void
     {
@@ -36,11 +43,9 @@ class ServiceProvider extends BaseServiceProvider
     }
     
     /**
-     * Bootstrap router
-     *
-     * @return void
+     * Bootstrap router.
      */
-    protected function bootRouter()
+    protected function bootRouter() : void
     {
         if ($this->app['config']->get('graphql.routes') && !$this->app->routesAreCached()) {
             $router = $this->getRouter();
@@ -49,16 +54,15 @@ class ServiceProvider extends BaseServiceProvider
     }
     
     /**
-     * Bootstrap events
+     * Bootstrap events.
      *
-     * @param GraphQL $graphql
-     *
-     * @return void
+     * @param GraphQL    $graphql
+     * @param Dispatcher $dispatcher
      */
-    protected function registerEventListeners(GraphQL $graphql) : void
+    protected function registerEventListeners(GraphQL $graphql, Dispatcher $dispatcher) : void
     {
         // Update the schema route pattern when schema is added
-        $this->app['events']->listen(
+        $dispatcher->listen(
             Events\SchemaAdded::class,
             function () use ($graphql) {
                 $router = $this->getRouter();
@@ -71,11 +75,9 @@ class ServiceProvider extends BaseServiceProvider
     }
     
     /**
-     * Bootstrap publishes
-     *
-     * @return void
+     * Bootstrap publishes.
      */
-    protected function bootPublishes()
+    protected function bootPublishes() : void
     {
         $configPath = __DIR__ . '/../../config';
         $viewsPath = __DIR__ . '/../../resources/views';
@@ -103,8 +105,6 @@ class ServiceProvider extends BaseServiceProvider
      * Add types from config
      *
      * @param GraphQL $graphql
-     *
-     * @return void
      */
     protected function addTypes(GraphQL $graphql) : void
     {
@@ -124,8 +124,6 @@ class ServiceProvider extends BaseServiceProvider
      * Add schemas from config
      *
      * @param GraphQL $graphql
-     *
-     * @return void
      */
     protected function addSchemas(GraphQL $graphql) : void
     {
@@ -137,9 +135,7 @@ class ServiceProvider extends BaseServiceProvider
     }
     
     /**
-     * Bootstrap Views
-     *
-     * @return void
+     * Bootstrap views.
      */
     protected function bootViews() : void
     {
@@ -153,9 +149,7 @@ class ServiceProvider extends BaseServiceProvider
     }
     
     /**
-     * Configure security from config
-     *
-     * @return void
+     * Configure security from config.
      */
     protected function applySecurityRules() : void
     {
@@ -184,39 +178,39 @@ class ServiceProvider extends BaseServiceProvider
     /**
      * Register any application services.
      *
-     * @return void
+     * @param Dispatcher $dispatcher
      */
-    public function register() : void
+    public function register(Dispatcher $dispatcher) : void
     {
-        $this->registerGraphQL();
+        $this->registerGraphQL($dispatcher);
         
         $this->registerConsole();
     }
     
     /**
-     * Register GraphQL facade
+     * Register GraphQL facade.
      *
-     * @return void
+     * @param Dispatcher $dispatcher
      */
-    protected function registerGraphQL()
+    protected function registerGraphQL(Dispatcher $dispatcher) : void
     {
         $this->app->singleton(
             TypeRegistryInterface::class,
-            function () : TypeRegistryInterface {
+            static function () : TypeRegistryInterface {
                 return new TypeRegistry();
             }
         );
         
         $this->app->singleton(
             'graphql',
-            function (Application $app) {
-                $graphql = new GraphQL($app, $app->make(TypeRegistryInterface::class));
+            function (Application $app) use ($dispatcher) {
+                $graphql = $app->make(GraphQL::class);
                 
                 $this->addTypes($graphql);
                 
                 $this->addSchemas($graphql);
-                
-                $this->registerEventListeners($graphql);
+        
+                $this->registerEventListeners($graphql, $dispatcher);
                 
                 $this->applySecurityRules();
                 
@@ -226,11 +220,9 @@ class ServiceProvider extends BaseServiceProvider
     }
     
     /**
-     * Register console commands
-     *
-     * @return void
+     * Register console commands.
      */
-    protected function registerConsole()
+    protected function registerConsole() : void
     {
         $this->commands(Console\TypeMakeCommand::class);
         $this->commands(Console\QueryMakeCommand::class);
@@ -246,7 +238,7 @@ class ServiceProvider extends BaseServiceProvider
      *
      * @return array
      */
-    public function provides()
+    public function provides() : array
     {
         return ['graphql'];
     }
