@@ -10,8 +10,11 @@ use GraphQL\Validator\DocumentValidator;
 use GraphQL\Validator\Rules\DisableIntrospection;
 use GraphQL\Validator\Rules\QueryComplexity;
 use GraphQL\Validator\Rules\QueryDepth;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\View\Factory;
+use Illuminate\Foundation\Application as LaravelApplication;
 use Illuminate\Support\ServiceProvider as BaseServiceProvider;
 
 /**
@@ -32,22 +35,30 @@ class ServiceProvider extends BaseServiceProvider
     
     /**
      * Bootstrap any application services.
+     *
+     * @param Repository $config
+     * @param Factory    $viewFactory
      */
-    public function boot() : void
+    public function boot(Repository $config, Factory $viewFactory) : void
     {
         $this->bootPublishes();
-        
-        $this->bootRouter();
-        
-        $this->bootViews();
+    
+        $this->bootRouter($config);
+    
+        $this->bootViews($config, $viewFactory);
     }
     
     /**
      * Bootstrap router.
+     *
+     * @param Repository $config
      */
-    protected function bootRouter() : void
+    protected function bootRouter(Repository $config) : void
     {
-        if ($this->app['config']->get('graphql.routes') && !$this->app->routesAreCached()) {
+        /** @var LaravelApplication $app */
+        $app = $this->app;
+    
+        if ($config->get('graphql.routes') && !$app->routesAreCached()) {
             $router = $this->getRouter();
             include __DIR__ . '/routes.php';
         }
@@ -56,10 +67,10 @@ class ServiceProvider extends BaseServiceProvider
     /**
      * Bootstrap events.
      *
-     * @param GraphQL    $graphql
      * @param Dispatcher $dispatcher
+     * @param GraphQL    $graphql
      */
-    protected function registerEventListeners(GraphQL $graphql, Dispatcher $dispatcher) : void
+    private function registerEventListeners(Dispatcher $dispatcher, GraphQL $graphql) : void
     {
         // Update the schema route pattern when schema is added
         $dispatcher->listen(
@@ -104,11 +115,12 @@ class ServiceProvider extends BaseServiceProvider
     /**
      * Add types from config
      *
-     * @param GraphQL $graphql
+     * @param Repository $config
+     * @param GraphQL    $graphql
      */
-    protected function addTypes(GraphQL $graphql) : void
+    private function addTypes(Repository $config, GraphQL $graphql) : void
     {
-        $types = $this->app['config']->get('graphql.types', []);
+        $types = $config->get('graphql.types', []);
         
         foreach ($types as $name => $type) {
             $graphql->addType(
@@ -123,11 +135,12 @@ class ServiceProvider extends BaseServiceProvider
     /**
      * Add schemas from config
      *
-     * @param GraphQL $graphql
+     * @param Repository $config
+     * @param GraphQL    $graphql
      */
-    protected function addSchemas(GraphQL $graphql) : void
+    private function addSchemas(Repository $config, GraphQL $graphql) : void
     {
-        $schemas = $this->app['config']->get('graphql.schemas', []);
+        $schemas = $config->get('graphql.schemas', []);
         
         foreach ($schemas as $name => $schema) {
             $graphql->addSchema($name, $schema);
@@ -136,38 +149,41 @@ class ServiceProvider extends BaseServiceProvider
     
     /**
      * Bootstrap views.
+     *
+     * @param Repository $config
+     * @param Factory    $viewFactory
      */
-    protected function bootViews() : void
+    private function bootViews(Repository $config, Factory $viewFactory) : void
     {
-        $config = $this->app['config'];
-        
         if ($config->get('graphql.graphiql', true)) {
             $view = $config->get('graphql.graphiql.view', 'graphql::graphiql');
             $composer = $config->get('graphql.graphiql.composer', View\GraphiQLComposer::class);
-            $this->app['view']->composer($view, $composer);
+            $viewFactory->composer($view, $composer);
         }
     }
     
     /**
      * Configure security from config.
+     *
+     * @param Repository $config
      */
-    protected function applySecurityRules() : void
+    private function applySecurityRules(Repository $config) : void
     {
-        $maxQueryComplexity = config('graphql.security.query_max_complexity');
+        $maxQueryComplexity = $config->get('graphql.security.query_max_complexity');
         if ($maxQueryComplexity !== null) {
             /** @var QueryComplexity $queryComplexity */
             $queryComplexity = DocumentValidator::getRule('QueryComplexity');
             $queryComplexity->setMaxQueryComplexity($maxQueryComplexity);
         }
-        
-        $maxQueryDepth = config('graphql.security.query_max_depth');
+    
+        $maxQueryDepth = $config->get('graphql.security.query_max_depth');
         if ($maxQueryDepth !== null) {
             /** @var QueryDepth $queryDepth */
             $queryDepth = DocumentValidator::getRule('QueryDepth');
             $queryDepth->setMaxQueryDepth($maxQueryDepth);
         }
-        
-        $disableIntrospection = config('graphql.security.disable_introspection');
+    
+        $disableIntrospection = $config->get('graphql.security.disable_introspection');
         if ($disableIntrospection === true) {
             /** @var DisableIntrospection $disableIntrospection */
             $disableIntrospection = DocumentValidator::getRule('DisableIntrospection');
@@ -180,10 +196,14 @@ class ServiceProvider extends BaseServiceProvider
      */
     public function register() : void
     {
-        /** @var Dispatcher $dispatcher */
+        /**
+         * @var Dispatcher $dispatcher
+         * @var Repository $config
+         */
         $dispatcher = $this->app->get(Dispatcher::class);
-        
-        $this->registerGraphQL($dispatcher);
+        $config = $this->app->get(Repository::class);
+    
+        $this->registerGraphQL($config, $dispatcher);
         
         $this->registerConsole();
     }
@@ -191,9 +211,10 @@ class ServiceProvider extends BaseServiceProvider
     /**
      * Register GraphQL facade.
      *
+     * @param Repository $config
      * @param Dispatcher $dispatcher
      */
-    protected function registerGraphQL(Dispatcher $dispatcher) : void
+    protected function registerGraphQL(Repository $config, Dispatcher $dispatcher) : void
     {
         $this->app->singleton(
             TypeRegistryInterface::class,
@@ -204,16 +225,16 @@ class ServiceProvider extends BaseServiceProvider
         
         $this->app->singleton(
             'graphql',
-            function (Application $app) use ($dispatcher) {
+            function (Application $app) use ($config, $dispatcher) {
                 $graphql = $app->make(GraphQL::class);
-                
-                $this->addTypes($graphql);
-                
-                $this->addSchemas($graphql);
-    
-                $this->registerEventListeners($graphql, $dispatcher);
-                
-                $this->applySecurityRules();
+        
+                $this->addTypes($config, $graphql);
+        
+                $this->addSchemas($config, $graphql);
+        
+                $this->registerEventListeners($dispatcher, $graphql);
+        
+                $this->applySecurityRules($config);
                 
                 return $graphql;
             }
