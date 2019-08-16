@@ -177,11 +177,12 @@ class ServiceProvider extends BaseServiceProvider
     
     /**
      * Register any application services.
-     *
-     * @param Dispatcher $dispatcher
      */
-    public function register(Dispatcher $dispatcher) : void
+    public function register() : void
     {
+        /** @var Dispatcher $dispatcher */
+        $dispatcher = $this->app->get(Dispatcher::class);
+        
         $this->registerGraphQL($dispatcher);
         
         $this->registerConsole();
@@ -209,7 +210,7 @@ class ServiceProvider extends BaseServiceProvider
                 $this->addTypes($graphql);
                 
                 $this->addSchemas($graphql);
-        
+    
                 $this->registerEventListeners($graphql, $dispatcher);
                 
                 $this->applySecurityRules();
