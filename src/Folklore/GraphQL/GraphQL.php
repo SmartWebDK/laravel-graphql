@@ -7,6 +7,8 @@ namespace Folklore\GraphQL;
 use Folklore\GraphQL\Error\ErrorFormatter;
 use Folklore\GraphQL\Error\InvalidConfigError;
 use Folklore\GraphQL\Events\SchemaAdded;
+use Folklore\GraphQL\Events\SchemaBuildingCompleted;
+use Folklore\GraphQL\Events\SchemaBuildingStarted;
 use Folklore\GraphQL\Events\TypeAdded;
 use Folklore\GraphQL\Exception\SchemaNotFound;
 use Folklore\GraphQL\Exception\TypeNotFound;
@@ -21,6 +23,7 @@ use GraphQL\Type\Definition\Type;
 use GraphQL\Type\Schema;
 use GraphQL\Utils\Utils;
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Arr;
 
@@ -60,20 +63,28 @@ class GraphQL
     private $config;
     
     /**
+     * @var Dispatcher
+     */
+    private $dispatcher;
+    
+    /**
      * @param Application           $app
      * @param TypeRegistryInterface $registry
+     * @param Dispatcher            $dispatcher
      */
-    public function __construct(Application $app, TypeRegistryInterface $registry)
+    public function __construct(Application $app, TypeRegistryInterface $registry, Dispatcher $dispatcher)
     {
         $this->app = $app;
         $this->registry = $registry;
         $this->config = $app->make('config');
+        $this->dispatcher = $dispatcher;
     }
     
     /**
-     * @param null $schema
+     * @param array|string|Schema|null $schema
      *
      * @return array|Schema|mixed|null|string
+     *
      * @throws SchemaNotFound
      * @throws TypeNotFound
      */
@@ -86,23 +97,52 @@ class GraphQL
         $schemaName = \is_string($schema)
             ? $schema
             : $this->config->get('graphql.schema', 'default');
-        
-        if (!\is_array($schema) && !isset($this->schemas[$schemaName])) {
-            throw new SchemaNotFound('Type ' . $schemaName . ' not found.');
-        }
-        
-        $schema = \is_array($schema)
-            ? $schema
-            : $this->schemas[$schemaName];
+    
+        $schema = $this->getSchemaArray($schema, $schemaName);
         
         if ($schema instanceof Schema) {
             return $schema;
         }
+    
+        $this->dispatcher->dispatch(new SchemaBuildingStarted($schemaName));
+        $built = $this->buildSchema($schema);
+        $this->dispatcher->dispatch(new SchemaBuildingCompleted($schemaName));
+    
+        return $built;
+    }
+    
+    /**
+     * @param array|string|Schema $schema
+     * @param string              $schemaName
+     *
+     * @return array|Schema
+     *
+     * @throws SchemaNotFound
+     */
+    private function getSchemaArray($schema, string $schemaName)
+    {
+        if (!\is_array($schema) && !isset($this->schemas[$schemaName])) {
+            throw new SchemaNotFound("Type {$schemaName} not found.");
+        }
         
-        $schemaQuery = Arr::get($schema, 'query', []);
-        $schemaMutation = Arr::get($schema, 'mutation', []);
-        $schemaSubscription = Arr::get($schema, 'subscription', []);
-        $schemaTypes = Arr::get($schema, 'types', []);
+        return \is_array($schema)
+            ? $schema
+            : $this->schemas[$schemaName];
+    }
+    
+    /**
+     * @param array $schemaConfig
+     *
+     * @return Schema
+     *
+     * @throws TypeNotFound
+     */
+    private function buildSchema(array $schemaConfig) : Schema
+    {
+        $schemaQuery = Arr::get($schemaConfig, 'query', []);
+        $schemaMutation = Arr::get($schemaConfig, 'mutation', []);
+        $schemaSubscription = Arr::get($schemaConfig, 'subscription', []);
+        $schemaTypes = Arr::get($schemaConfig, 'types', []);
         
         // Get the types from the schema.
         $types = $this->registerSchemaTypes($schemaTypes);
@@ -355,8 +395,8 @@ class GraphQL
     }
     
     /**
-     * @param mixed       $class
-     * @param string|null $name
+     * @param object|string $class
+     * @param string|null   $name
      */
     public function addType($class, ?string $name = null) : void
     {
@@ -367,10 +407,10 @@ class GraphQL
     }
     
     /**
-     * @param $name
-     * @param $schema
+     * @param string $name
+     * @param array  $schema
      */
-    public function addSchema($name, $schema) : void
+    public function addSchema(string $name, array $schema) : void
     {
         $this->schemas[$name] = $schema;
         
