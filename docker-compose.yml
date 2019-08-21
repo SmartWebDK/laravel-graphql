@@ -14,5 +14,14 @@ services:
         networks:
             - local
 
+    composer:
+        image: smartweb/composer
+        volumes:
+            - .:/app
+            - composer-cache:/tmp
+
+volumes:
+    composer-cache:
+
 networks:
     local:
