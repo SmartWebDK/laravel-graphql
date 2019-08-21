@@ -7,6 +7,9 @@ namespace Folklore\GraphQL;
 use Folklore\GraphQL\Error\ErrorFormatter;
 use Folklore\GraphQL\Error\InvalidConfigError;
 use Folklore\GraphQL\Events\RequestResolved;
+use GraphQL\Executor\ExecutionResult;
+use GraphQL\Executor\Promise\Promise;
+use GraphQL\Executor\Promise\PromiseAdapter;
 use GraphQL\Server\ServerConfig;
 use GraphQL\Server\StandardServer;
 use GraphQL\Type\Schema;
@@ -55,7 +58,7 @@ class GraphQLController extends Controller
     private $dispatcher;
     
     /**
-     * @param Request $request
+     * @param Request         $request
      * @param Repository      $config
      * @param ResponseFactory $responseFactory
      * @param Factory         $viewFactory
@@ -146,7 +149,7 @@ class GraphQLController extends Controller
         $schema = $defaultSchema;
         
         if (\is_array($route)) {
-            $schema = array_get($route, '2.' . $prefix . '_schema', $defaultSchema);
+            $schema = Arr::get($route, '2.' . $prefix . '_schema', $defaultSchema);
         } elseif (\is_object($route)) {
             $schema = $route->parameter($prefix . '_schema', $defaultSchema);
         }
@@ -171,52 +174,88 @@ class GraphQLController extends Controller
         $graphQLSchema = $graphql_schema ?? $this->config->get('graphql.schema');
         
         $server = new StandardServer($this->getServerConfig($graphQLSchema));
-    
-        $inputs = $request->getParsedBody();
-        $isBatch = Arr::has($inputs, 'query');
         
         $connection->beginTransaction();
         
         $data = $server->executePsrRequest($request);
-//        $server->handleRequest($request);
-
-//        if (!$isBatch) {
-//            $data = $this->executeQuery($graphQLSchema, $inputs);
-//        } else {
-//            $data = [];
-//            foreach ($inputs as $input) {
-//                $data[] = $this->executeQuery($graphQLSchema, $input);
-//            }
-//        }
-        
-        $headers = $this->config->get('graphql.headers', []);
-        $options = $this->config->get('graphql.json_encoding_options', 0);
-        
-        $errors = !$isBatch
-            ? array_get($data, 'errors', [])
-            : [];
-        
-        $authorized = \array_reduce(
-            $errors,
-            function ($authorized, $error) {
-                return !(!$authorized || \array_get($error, 'message') === 'Unauthorized');
-            },
-            true
-        );
+    
+        $errors = $this->getResultErrors($data);
         
         if ($errors !== []) {
             $connection->rollBack();
         } else {
             $connection->commit();
         }
-        
-        if (!$authorized) {
-            return $this->responseFactory->json($data, 403, $headers, $options);
+    
+        if (!$this->isAuthorized($errors)) {
+            return $this->response($data, 403);
         }
         
         $this->dispatcher->dispatch(new RequestResolved($graphQLSchema, $errors));
+    
+        return $this->response($data, 200);
+    }
+    
+    /**
+     * @param ExecutionResult|ExecutionResult[]|Promise $results
+     *
+     * @return array
+     */
+    private function getResultErrors($results) : array
+    {
+        // FIXME: Missing tests!
+        $errors = [[]];
         
-        return $this->responseFactory->json($data, 200, $headers, $options);
+        if ($results instanceof ExecutionResult || $results instanceof Promise) {
+            $errors[] = $results->errors;
+        }
+        
+        if (\is_array($results)) {
+            foreach ($results as $result) {
+                /** @var ExecutionResult $result */
+                $errors[] = $result->errors;
+            }
+        }
+        
+        return \array_merge(...$errors);
+    }
+    
+    /**
+     * @param array $data
+     * @param int   $status
+     *
+     * @return JsonResponse
+     */
+    private function response(array $data, int $status) : JsonResponse
+    {
+        // FIXME: Missing tests!
+        // FIXME: Move to separate Http\ResponseFactory class!
+        $headers = $this->config->get('graphql.headers', []);
+        $options = $this->config->get('graphql.json_encoding_options', 0);
+        
+        return $this->responseFactory->json($data, $status, $headers, $options);
+    }
+    
+    /**
+     * @param array $errors
+     *
+     * @return bool
+     */
+    private function isAuthorized(array $errors) : bool
+    {
+        // FIXME: Missing tests!
+        // No need to analyze error array if no errors arose.
+        if ($errors === []) {
+            return true;
+        }
+        
+        return \array_reduce(
+            $errors,
+            static function ($authorized, $error) {
+                return !(!$authorized || Arr::get($error, 'message') === 'Unauthorized');
+            },
+            true
+        );
     }
     
     /**
@@ -238,32 +277,6 @@ class GraphQLController extends Controller
     }
     
     /**
-     * @param $schema
-     * @param $input
-     *
-     * @return mixed
-     */
-    protected function executeQuery($schema, $input)
-    {
-        $variablesInputName = $this->config->get('graphql.variables_input_name', 'variables');
-        $query = array_get($input, 'query');
-        $variables = array_get($input, $variablesInputName);
-        
-        if (\is_string($variables)) {
-            $variables = json_decode($variables, true);
-        }
-        
-        $operationName = array_get($input, 'operationName');
-        $context = $this->getQueryContext();
-        
-        return \app('graphql')->query(
-            $query,
-            $variables,
-            \compact('context', 'schema', 'operationName')
-        );
-    }
-    
-    /**
      * @param string|null $schemaName
      *
      * @return array
@@ -274,17 +287,17 @@ class GraphQLController extends Controller
     private function getServerConfig(?string $schemaName) : ServerConfig
     {
         $config = [
-            'schema'          => $this->getSchema($schemaName),
-            //'rootValue'             => $this->getRootValue($schemaName),
-            'context'         => $this->getQueryContext(),
-            'fieldResolver'   => $this->getFieldResolver(),
-            'validationRules' => [],
-            'queryBatching'   => true,
-            'debug'           => ErrorFormatter::getDebug(),
-            //'persistentQueryLoader' =>,
-            'errorFormatter'  => $this->getErrorFormatter(),
-            'errorHandler'    => $this->getErrorHandler(),
-            //'promiseAdapter'        =>,
+            'schema'                => $this->getSchema($schemaName),
+            'rootValue'             => $this->getRootValue($schemaName),
+            'context'               => $this->getQueryContext(),
+            'fieldResolver'         => $this->getFieldResolver(),
+            'validationRules'       => [],
+            'queryBatching'         => true,
+            'debug'                 => ErrorFormatter::getDebug(),
+            'persistentQueryLoader' => $this->getPersistentQueryLoader(),
+            'errorFormatter'        => $this->getErrorFormatter(),
+            'errorHandler'          => $this->getErrorHandler(),
+            'promiseAdapter'        => $this->getPromiseAdapter(),
         ];
         
         // Filter out null values.
@@ -312,7 +325,7 @@ class GraphQLController extends Controller
     /**
      * @param string|null $schemaName
      *
-     * @return mixed
+     * @return mixed|null
      */
     private function getRootValue(?string $schemaName)
     {
@@ -348,6 +361,14 @@ class GraphQLController extends Controller
     }
     
     /**
+     * @return callable|null
+     */
+    private function getPersistentQueryLoader() : ?callable
+    {
+        return null;
+    }
+    
+    /**
      * @return callable
      */
     private function getErrorFormatter() : ?callable
@@ -372,6 +393,14 @@ class GraphQLController extends Controller
      * @return callable|null
      */
     private function getErrorHandler() : ?callable
+    {
+        return null;
+    }
+    
+    /**
+     * @return PromiseAdapter|null
+     */
+    private function getPromiseAdapter() : ?PromiseAdapter
     {
         return null;
     }
