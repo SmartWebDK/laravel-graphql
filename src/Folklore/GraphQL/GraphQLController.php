@@ -21,6 +21,7 @@ use Illuminate\Database\ConnectionInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Arr;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -170,9 +171,9 @@ class GraphQLController extends Controller
         $graphQLSchema = $graphql_schema ?? $this->config->get('graphql.schema');
         
         $server = new StandardServer($this->getServerConfig($graphQLSchema));
-        
-        $isBatch = !$request->has('query');
-        $inputs = $request->all();
+    
+        $inputs = $request->getParsedBody();
+        $isBatch = Arr::has($inputs, 'query');
         
         $connection->beginTransaction();
         
