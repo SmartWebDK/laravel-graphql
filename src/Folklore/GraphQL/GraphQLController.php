@@ -176,10 +176,10 @@ class GraphQLController extends Controller
         $server = new StandardServer($this->getServerConfig($graphQLSchema));
         
         $connection->beginTransaction();
-        
-        $data = $server->executePsrRequest($request);
     
-        $errors = $this->getResultErrors($data);
+        $results = $server->executePsrRequest($request);
+    
+        $errors = $this->getResultErrors($results);
         
         if ($errors !== []) {
             $connection->rollBack();
@@ -188,12 +188,12 @@ class GraphQLController extends Controller
         }
     
         if (!$this->isAuthorized($errors)) {
-            return $this->response($data, 403);
+            return $this->response($results, 403);
         }
         
         $this->dispatcher->dispatch(new RequestResolved($graphQLSchema, $errors));
     
-        return $this->response($data, 200);
+        return $this->response($results, 200);
     }
     
     /**
@@ -221,19 +221,19 @@ class GraphQLController extends Controller
     }
     
     /**
-     * @param array $data
-     * @param int   $status
+     * @param ExecutionResult|ExecutionResult[]|Promise $results
+     * @param int                                       $status
      *
      * @return JsonResponse
      */
-    private function response(array $data, int $status) : JsonResponse
+    private function response($results, int $status) : JsonResponse
     {
         // FIXME: Missing tests!
         // FIXME: Move to separate Http\ResponseFactory class!
         $headers = $this->config->get('graphql.headers', []);
         $options = $this->config->get('graphql.json_encoding_options', 0);
-        
-        return $this->responseFactory->json($data, $status, $headers, $options);
+    
+        return $this->responseFactory->json($results, $status, $headers, $options);
     }
     
     /**
