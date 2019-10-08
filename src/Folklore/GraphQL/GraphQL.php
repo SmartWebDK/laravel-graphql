@@ -18,6 +18,7 @@ use Folklore\GraphQL\Support\PaginationCursorType;
 use Folklore\GraphQL\Support\PaginationType;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\GraphQL as GraphQLBase;
+use GraphQL\Type\Definition\FieldDefinition;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\Type;
 use GraphQL\Type\Schema;
@@ -509,6 +510,8 @@ class GraphQL
                     : $name;
                 $field->name = $name;
                 $field = $field->toArray();
+            } elseif ($field instanceof FieldDefinition) {
+                $name = $field->name;
             } else {
                 $name = is_numeric($name)
                     ? $field['name']
