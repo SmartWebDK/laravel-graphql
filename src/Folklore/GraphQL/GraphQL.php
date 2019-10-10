@@ -1,4 +1,5 @@
 <?php
+/** @noinspection EfferentObjectCouplingInspection */
 declare(strict_types = 1);
 
 
@@ -27,7 +28,6 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\Arr;
-use Webmozart\Assert\Assert;
 
 /**
  * Provides centralized access to GraphQL schemas and types.
@@ -70,14 +70,12 @@ class GraphQL
     private $dispatcher;
     
     /**
-     * @param Application|\Laravel\Lumen\Application $app
-     * @param TypeRegistryInterface                  $registry
-     * @param Dispatcher                             $dispatcher
+     * @param Application           $app
+     * @param TypeRegistryInterface $registry
+     * @param Dispatcher            $dispatcher
      */
-    public function __construct($app, TypeRegistryInterface $registry, Dispatcher $dispatcher)
+    public function __construct(Application $app, TypeRegistryInterface $registry, Dispatcher $dispatcher)
     {
-        Assert::isInstanceOfAny($app, [Application::class, '\Laravel\Lumen\Application']);
-        
         $this->app = $app;
         $this->registry = $registry;
         $this->config = $app->make('config');
