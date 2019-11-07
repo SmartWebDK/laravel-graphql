@@ -358,7 +358,7 @@ class GraphQL
         $context = array_get($opts, 'context', null);
         $schemaName = array_get($opts, 'schema', null);
         $operationName = array_get($opts, 'operationName', null);
-        $defaultFieldResolver = $this->config->get('graphql.defaultFieldResolver', null);
+        $defaultFieldResolver = $this->getFieldResolver();
         
         $additionalResolversSchemaName = \is_string($schemaName)
             ? $schemaName
@@ -381,6 +381,18 @@ class GraphQL
         );
         
         return $result;
+    }
+    
+    /**
+     * @return callable|null
+     */
+    private function getFieldResolver() : ?callable
+    {
+        $resolver = $this->config->get('graphql.defaultFieldResolver');
+        
+        return \is_string($resolver)
+            ? \resolve($resolver)
+            : $resolver;
     }
     
     /**
