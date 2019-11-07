@@ -1,4 +1,5 @@
 <?php
+/** @noinspection EfferentObjectCouplingInspection */
 declare(strict_types = 1);
 
 
@@ -264,8 +265,11 @@ class GraphQLController extends Controller
      *
      * @return View
      */
-    public function graphiql(Request $request, ?string $graphql_schema = null) : View
-    {
+    public function graphiql(
+        /** @noinspection PhpUnusedParameterInspection */
+        Request $request,
+        ?string $graphql_schema = null
+    ) : View {
         $view = $this->config->get('graphql.graphiql.view', 'graphql::graphiql');
         
         return $this->viewFactory->make(
@@ -344,8 +348,10 @@ class GraphQLController extends Controller
     private function getQueryContext()
     {
         try {
+            // FIXME: Replace with injection of `\Illuminate\Contracts\Auth\Guard`!
             $context = \app('auth')->user();
-        } catch (\Exception $error) {
+        } /** @noinspection BadExceptionsProcessingInspection */
+        catch (\Exception $error) {
             $context = null;
         }
         
@@ -357,7 +363,11 @@ class GraphQLController extends Controller
      */
     private function getFieldResolver() : ?callable
     {
-        return $this->config->get('graphql.defaultFieldResolver');
+        $resolver = $this->config->get('graphql.defaultFieldResolver');
+    
+        return \is_string($resolver)
+            ? \resolve($resolver)
+            : $resolver;
     }
     
     /**
