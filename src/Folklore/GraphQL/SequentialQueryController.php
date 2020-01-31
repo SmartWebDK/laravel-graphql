@@ -159,6 +159,96 @@ class SequentialQueryController extends Controller
             : null;
     }
     
+    public function query(Request $request, $graphql_schema = null)
+    {
+        $isBatch = !$request->has('query');
+        $inputs = $request->all();
+        
+        if (is_null($graphql_schema)) {
+            $graphql_schema = config('graphql.schema');
+        }
+        
+        if (!$isBatch) {
+            $data = $this->executeQuery($graphql_schema, $inputs);
+        } else {
+            $data = [];
+            foreach ($inputs as $input) {
+                $data[] = $this->executeQuery($graphql_schema, $input);
+            }
+        }
+        
+        $headers = config('graphql.headers', []);
+        $options = config('graphql.json_encoding_options', 0);
+        
+        $errors = !$isBatch
+            ? array_get($data, 'errors', [])
+            : [];
+        $authorized = array_reduce(
+            $errors,
+            function ($authorized, $error) {
+                return !$authorized || array_get($error, 'message') === 'Unauthorized'
+                    ? false
+                    : true;
+            },
+            true
+        );
+        if (!$authorized) {
+            return response()->json($data, 403, $headers, $options);
+        }
+        
+        return response()->json($data, 200, $headers, $options);
+    }
+    
+    /**
+     * @param Request $request
+     * @param null    $graphql_schema
+     *
+     * @return Factory|\Illuminate\View\View
+     * @noinspection PhpUnused
+     */
+    public function graphiql(Request $request, $graphql_schema = null)
+    {
+        $view = config('graphql.graphiql.view', 'graphql::graphiql');
+        
+        return view(
+            $view,
+            [
+                'graphql_schema' => $graphql_schema,
+            ]
+        );
+    }
+    
+    protected function executeQuery($schema, $input)
+    {
+        $variablesInputName = config('graphql.variables_input_name', 'variables');
+        $query = array_get($input, 'query');
+        $variables = array_get($input, $variablesInputName);
+        if (is_string($variables)) {
+            $variables = json_decode($variables, true);
+        }
+        $operationName = array_get($input, 'operationName');
+        $context = $this->queryContext($query, $variables, $schema);
+        
+        return app('graphql')->query(
+            $query,
+            $variables,
+            [
+                'context'       => $context,
+                'schema'        => $schema,
+                'operationName' => $operationName,
+            ]
+        );
+    }
+    
+    protected function queryContext($query, $variables, $schema)
+    {
+        try {
+            return app('auth')->user();
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+    
     /**
      * @param Request     $request
      * @param string|null $graphql_schema
@@ -168,7 +258,7 @@ class SequentialQueryController extends Controller
      * @throws Exception\SchemaNotFound
      * @throws Exception\TypeNotFound
      */
-    public function query(Request $request, ?string $graphql_schema = null) : JsonResponse
+    public function query2(Request $request, ?string $graphql_schema = null) : JsonResponse
     {
         /** @var ConnectionInterface $connection */
         $connection = Container::getInstance()->get(ConnectionInterface::class);
@@ -181,11 +271,11 @@ class SequentialQueryController extends Controller
         $connection->beginTransaction();
         
         if (!$isBatch) {
-            $results = $this->executeQuery($schemaName, $inputs);
+            $results = $this->executeQuery2($schemaName, $inputs);
         } else {
             $results = [];
             foreach ($inputs as $batchIndex => $input) {
-                $results[] = $this->executeQuery($schemaName, $input);
+                $results[] = $this->executeQuery2($schemaName, $input);
             }
         }
         
@@ -225,7 +315,7 @@ class SequentialQueryController extends Controller
      * @throws Exception\SchemaNotFound
      * @throws Exception\TypeNotFound
      */
-    protected function executeQuery(string $schemaName, array $input) : array
+    protected function executeQuery2(string $schemaName, array $input) : array
     {
         return $this->graphQL->query(
             $this->getQuery($input),
@@ -338,27 +428,5 @@ class SequentialQueryController extends Controller
     private function getOperationName(array $input) : string
     {
         return Arr::get($input, 'operationName');
-    }
-    
-    /**
-     * @param Request     $request
-     * @param null|string $graphql_schema
-     *
-     * @return View
-     * @noinspection PhpUnused
-     */
-    public function graphiql(
-        /** @noinspection PhpUnusedParameterInspection */
-        Request $request,
-        ?string $graphql_schema = null
-    ) : View {
-        $view = $this->config->get('graphql.graphiql.view', 'graphql::graphiql');
-        
-        return $this->viewFactory->make(
-            $view,
-            [
-                'graphql_schema' => $graphql_schema,
-            ]
-        );
     }
 }
