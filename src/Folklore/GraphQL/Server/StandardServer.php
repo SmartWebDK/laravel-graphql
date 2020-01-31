@@ -1,14 +1,16 @@
 <?php
+declare(strict_types = 1);
 
 
-namespace Folklore\GraphQL;
+namespace Folklore\GraphQL\Server;
 
 use GraphQL\Error\FormattedError;
 use GraphQL\Error\InvariantViolation;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\Executor\Promise\Promise;
+use GraphQL\Server\OperationParams;
+use GraphQL\Server\RequestError;
 use GraphQL\Server\ServerConfig;
-use GraphQL\Utils;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
@@ -34,8 +36,9 @@ use Psr\Http\Message\StreamInterface;
  *
  * See [dedicated section in docs](executing-queries.md#using-server) for details.
  *
+ * @api
  */
-class Server
+class StandardServer
 {
     
     /**
@@ -51,18 +54,10 @@ class Server
     /**
      * Creates new instance of a standard GraphQL HTTP server
      *
-     * @param ServerConfig|array $config
-     *
-     * @api
+     * @param ServerConfig $config
      */
-    public function __construct($config)
+    public function __construct(ServerConfig $config)
     {
-        if (is_array($config)) {
-            $config = ServerConfig::create($config);
-        }
-        if (!$config instanceof ServerConfig) {
-            throw new InvariantViolation("Expecting valid server config, but got " . Utils::printSafe($config));
-        }
         $this->config = $config;
         $this->helper = new Helper();
     }
@@ -78,13 +73,17 @@ class Server
      * (e.g. using Response object of some framework)
      *
      * @param OperationParams|OperationParams[] $parsedBody
-     * @param bool                              $exitWhenDone
+     * @param bool|null                         $exitWhenDone If **true**, the program will exit when done.
+     *                                                        Default: **false**.
      *
-     * @api
+     * @throws RequestError
      */
-    public function handleRequest($parsedBody = null, $exitWhenDone = false)
+    public function handleRequest($parsedBody = null, ?bool $exitWhenDone = null) : void
     {
+        $exitWhenDone = $exitWhenDone ?? false;
+        
         $result = $this->executeRequest($parsedBody);
+        
         $this->helper->sendResponse($result, $exitWhenDone);
     }
     
@@ -101,20 +100,19 @@ class Server
      * @param OperationParams|OperationParams[] $parsedBody
      *
      * @return ExecutionResult|ExecutionResult[]|Promise
+     *
      * @throws InvariantViolation
-     * @api
+     * @throws RequestError
      */
     public function executeRequest($parsedBody = null)
     {
-        if (null === $parsedBody) {
+        if ($parsedBody === null) {
             $parsedBody = $this->helper->parseHttpRequest();
         }
-        
-        if (is_array($parsedBody)) {
-            return $this->helper->executeBatch($this->config, $parsedBody);
-        } else {
-            return $this->helper->executeOperation($this->config, $parsedBody);
-        }
+    
+        return \is_array($parsedBody)
+            ? $this->helper->executeBatch($this->config, $parsedBody)
+            : $this->helper->executeOperation($this->config, $parsedBody);
     }
     
     /**
@@ -128,7 +126,8 @@ class Server
      * @param StreamInterface        $writableBodyStream
      *
      * @return ResponseInterface|Promise
-     * @api
+     *
+     * @throws RequestError
      */
     public function processPsrRequest(
         ServerRequestInterface $request,
@@ -147,7 +146,8 @@ class Server
      * @param ServerRequestInterface $request
      *
      * @return ExecutionResult|ExecutionResult[]|Promise
-     * @api
+     *
+     * @throws RequestError
      */
     public function executePsrRequest(ServerRequestInterface $request)
     {
@@ -161,9 +161,8 @@ class Server
      * parsing / validating / executing request (which could be re-used by other server implementations)
      *
      * @return Helper
-     * @api
      */
-    public function getHelper()
+    public function getHelper() : Helper
     {
         return $this->helper;
     }
@@ -173,21 +172,26 @@ class Server
      * Useful when an exception is thrown somewhere outside of server execution context
      * (e.g. during schema instantiation).
      *
-     * @param \Throwable $error
-     * @param bool       $debug
-     * @param bool       $exitWhenDone
+     * @param \Throwable    $error
+     * @param bool|int|null $debug                            Debug mode used to create the error.
+     *                                                        Default: **false**.
+     *                                                        For a list of available debug flags see {@see \GraphQL\Error\Debug Debug} constants.
+     * @param bool|null     $exitWhenDone                     If **true**, the program will exit when done.
+     *                                                        Default: **false**.
      *
      * @throws \Throwable
-     *
-     * @api
      */
-    public static function send500Error($error, $debug = false, $exitWhenDone = false)
+    public static function send500Error($error, $debug = null, ?bool $exitWhenDone = null) : void
     {
+        $debug = $debug ?? false;
+        $exitWhenDone = $exitWhenDone ?? false;
+        
         $response = [
             'errors' => [
                 FormattedError::createFromException($error, $debug),
             ],
         ];
+        
         $helper = new Helper();
         $helper->emitResponse($response, 500, $exitWhenDone);
     }

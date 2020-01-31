@@ -2,7 +2,7 @@
 declare(strict_types = 1);
 
 
-namespace Folklore\GraphQL;
+namespace Folklore\GraphQL\Server;
 
 use GraphQL\Error\Error;
 use GraphQL\Error\FormattedError;
@@ -26,139 +26,309 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
 
 /**
- * TODO: Missing class description.
+ * Contains functionality that could be re-used by various server implementations.
  *
  * @author Nicolai Agersbæk <nicolai.agersbaek@team.blue>
  *
  * @api
  */
-class Helper extends BaseHelper
+class Helper
 {
     
     /**
      * Executes batched GraphQL operations with shared promise queue
-     * (thus, effectively batching deferreds|promises of all queries at once)
+     * (thus, effectively batching Deferreds|Promises of all queries at once)
      *
      * @param ServerConfig      $config
      * @param OperationParams[] $operations
      *
      * @return ExecutionResult[]|Promise
-     * @api
      */
     public function executeBatch(ServerConfig $config, array $operations)
     {
-        $promiseAdapter = $config->getPromiseAdapter()
-            ?: Executor::getPromiseAdapter();
+        $promiseAdapter = $config->getPromiseAdapter() ?? Executor::getPromiseAdapter();
+    
+        $result = $this->getBatchExecutionResults($config, $promiseAdapter, $operations);
+    
+        // Wait for promised results when using sync promises
+        return $promiseAdapter instanceof SyncPromiseAdapter
+            ? $promiseAdapter->wait($result)
+            : $result;
+    }
+    
+    /**
+     * @param ServerConfig      $config
+     * @param PromiseAdapter    $promiseAdapter
+     * @param OperationParams[] $operations
+     *
+     * @return Promise
+     */
+    private function getBatchExecutionResults(
+        ServerConfig $config,
+        PromiseAdapter $promiseAdapter,
+        array $operations
+    ) : Promise {
         $result = [];
         
-        $context = $config->getContext();
-        $context = \array_merge(['viewer' => $context, 'batchIndex' => 0]);
+        $this->prepareConfigContextForBatchExecution($config);
         
         foreach ($operations as $index => $operation) {
-            $context['batchIndex'] = $index;
-            $config->setContext($context);
+            $this->updateConfigContextWithBatchIndex($config, $index);
             
             $result[] = $this->promiseToExecuteOperation($promiseAdapter, $config, $operation, true);
         }
         
-        $result = $promiseAdapter->all($result);
+        return $promiseAdapter->all($result);
+    }
+    
+    /**
+     * @param ServerConfig $config
+     */
+    private function prepareConfigContextForBatchExecution(ServerConfig $config) : void
+    {
+        $context = $config->getContext();
+        $context = \array_merge(['viewer' => $context, 'batchIndex' => 0]);
         
-        // Wait for promised results when using sync promises
-        if ($promiseAdapter instanceof SyncPromiseAdapter) {
-            $result = $promiseAdapter->wait($result);
-        }
+        $config->setContext($context);
+    }
+    
+    /**
+     * @param ServerConfig $config
+     * @param int          $batchIndex
+     */
+    private function updateConfigContextWithBatchIndex(ServerConfig $config, int $batchIndex) : void
+    {
+        $context = $config->getContext();
         
-        return $result;
+        $context['batchIndex'] = $batchIndex;
+        $config->setContext($context);
     }
     
     /**
      * @param PromiseAdapter  $promiseAdapter
      * @param ServerConfig    $config
-     * @param OperationParams $op
-     * @param bool            $isBatch
+     * @param OperationParams $params
+     * @param bool|null       $isBatch Default: **false**.
      *
      * @return Promise
      */
     private function promiseToExecuteOperation(
         PromiseAdapter $promiseAdapter,
         ServerConfig $config,
-        OperationParams $op,
-        $isBatch = false
-    ) {
+        OperationParams $params,
+        ?bool $isBatch = null
+    ) : Promise {
+        $isBatch = $isBatch ?? false;
+        
         try {
-            if (!$config->getSchema()) {
-                throw new InvariantViolation("Schema is required for the server");
-            }
-            if ($isBatch && !$config->getQueryBatching()) {
-                throw new RequestError("Batched queries are not supported by this server");
-            }
-            
-            $errors = $this->validateOperationParams($op);
-            
-            if (!empty($errors)) {
-                $errors = Utils::map(
-                    $errors,
-                    function (RequestError $err) {
-                        return Error::createLocatedError($err, null, null);
-                    }
-                );
-                
-                return $promiseAdapter->createFulfilled(
-                    new ExecutionResult(null, $errors)
-                );
-            }
-            
-            $doc = $op->queryId
-                ? $this->loadPersistedQuery($config, $op)
-                : $op->query;
-            
-            if (!$doc instanceof DocumentNode) {
-                $doc = Parser::parse($doc);
-            }
-            
-            $operationType = AST::getOperation($doc, $op->operation);
-            if ($op->isReadOnly() && $operationType !== 'query') {
-                throw new RequestError("GET supports only query operation");
-            }
-            
-            $result = GraphQL::promiseToExecute(
-                $promiseAdapter,
-                $config->getSchema(),
-                $doc,
-                $this->resolveRootValue($config, $op, $doc, $operationType),
-                $this->resolveContextValue($config, $op, $doc, $operationType),
-                $op->variables,
-                $op->operation,
-                $config->getFieldResolver(),
-                $this->resolveValidationRules($config, $op, $doc, $operationType)
-            );
-        } catch (RequestError $e) {
+            $result = $this->attemptToExecuteOperation($promiseAdapter, $config, $params, $isBatch);
+        } catch (RequestError $error) {
             $result = $promiseAdapter->createFulfilled(
-                new ExecutionResult(null, [Error::createLocatedError($e)])
+                new ExecutionResult(null, [Error::createLocatedError($error)])
             );
-        } catch (Error $e) {
+        } catch (Error $error) {
             $result = $promiseAdapter->createFulfilled(
-                new ExecutionResult(null, [$e])
+                new ExecutionResult(null, [$error])
             );
         }
         
-        $applyErrorHandling = function (ExecutionResult $result) use ($config) {
-            if ($config->getErrorsHandler()) {
-                $result->setErrorsHandler($config->getErrorsHandler());
-            }
-            if ($config->getErrorFormatter() || $config->getDebug()) {
-                $result->setErrorFormatter(
-                    FormattedError::prepareFormatter(
-                        $config->getErrorFormatter(),
-                        $config->getDebug()
-                    )
-                );
-            }
-            
-            return $result;
+        return $this->applyErrorHandling($result, $config);
+    }
+    
+    /**
+     * @param PromiseAdapter  $promiseAdapter
+     * @param ServerConfig    $config
+     * @param OperationParams $params
+     * @param bool            $isBatch
+     *
+     * @return Promise
+     *
+     * @throws RequestError
+     */
+    private function attemptToExecuteOperation(
+        PromiseAdapter $promiseAdapter,
+        ServerConfig $config,
+        OperationParams $params,
+        bool $isBatch
+    ) : Promise {
+        $this->validateConfigForPromiseExecution($config, $isBatch);
+        
+        $errors = $this->getErrorsForOperationParams($params);
+        
+        if ($errors !== []) {
+            return $promiseAdapter->createFulfilled(
+                new ExecutionResult(null, $errors)
+            );
+        }
+        
+        $document = $this->getDocumentNodeFromOperationParams($config, $params);
+        $operationType = $this->getOperationType($document, $params);
+        
+        return $this->promiseToExecute($promiseAdapter, $config, $params, $document, $operationType);
+    }
+    
+    /**
+     * @param PromiseAdapter  $promiseAdapter
+     * @param ServerConfig    $config
+     * @param OperationParams $params
+     * @param DocumentNode    $document
+     * @param false|string    $operationType
+     *
+     * @return Promise
+     */
+    private function promiseToExecute(
+        PromiseAdapter $promiseAdapter,
+        ServerConfig $config,
+        OperationParams $params,
+        DocumentNode $document,
+        $operationType
+    ) : Promise {
+        return GraphQL::promiseToExecute(
+            $promiseAdapter,
+            $config->getSchema(),
+            $document,
+            $this->resolveRootValue($config, $params, $document, $operationType),
+            $this->resolveContextValue($config, $params, $document, $operationType),
+            $params->variables,
+            $params->operation,
+            $config->getFieldResolver(),
+            $this->resolveValidationRules($config, $params, $document, $operationType)
+        );
+    }
+    
+    /**
+     * @param Promise      $result
+     * @param ServerConfig $config
+     *
+     * @return Promise
+     */
+    private function applyErrorHandling(Promise $result, ServerConfig $config) : Promise
+    {
+        return $result->then($this->applyErrorHandlingCallback($config));
+    }
+    
+    /**
+     * @param ServerConfig $config
+     *
+     * @return callable
+     */
+    private function applyErrorHandlingCallback(ServerConfig $config) : callable
+    {
+        return static function (ExecutionResult $result) use ($config) {
+            return self::applyErrorHandlingToResult($result, $config);
+        };
+    }
+    
+    /**
+     * @param ExecutionResult $result
+     * @param ServerConfig    $config
+     *
+     * @return ExecutionResult
+     *
+     * @internal
+     */
+    public static function applyErrorHandlingToResult(ExecutionResult $result, ServerConfig $config) : ExecutionResult
+    {
+        if ($config->getErrorsHandler()) {
+            $result->setErrorsHandler($config->getErrorsHandler());
+        }
+        
+        if ($config->getErrorFormatter() || $config->getDebug()) {
+            $result->setErrorFormatter(
+                FormattedError::prepareFormatter(
+                    $config->getErrorFormatter(),
+                    $config->getDebug()
+                )
+            );
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * @param DocumentNode    $document
+     * @param OperationParams $params
+     *
+     * @return false|string
+     *
+     * @throws RequestError
+     */
+    private function getOperationType(DocumentNode $document, OperationParams $params)
+    {
+        /** @var false|string $operationType */
+        $operationType = AST::getOperation($document, $params->operation);
+        
+        if ($operationType !== 'query' && $params->isReadOnly()) {
+            throw new RequestError('GET supports only query operation');
+        }
+        
+        return $operationType;
+    }
+    
+    /**
+     * @param ServerConfig    $config
+     * @param OperationParams $params
+     *
+     * @return DocumentNode
+     *
+     * @throws RequestError
+     */
+    private function getDocumentNodeFromOperationParams(ServerConfig $config, OperationParams $params) : DocumentNode
+    {
+        $document = $params->queryId
+            ? $this->loadPersistedQuery($config, $params)
+            : $params->query;
+        
+        return !$document instanceof DocumentNode
+            ? Parser::parse($document)
+            : $document;
+    }
+    
+    /**
+     * @param ServerConfig $config
+     * @param bool         $isBatch
+     *
+     * @throws RequestError
+     */
+    private function validateConfigForPromiseExecution(
+        ServerConfig $config,
+        bool $isBatch
+    ) : void {
+        if (!$config->getSchema()) {
+            throw new InvariantViolation('Schema is required for the server');
+        }
+        
+        if ($isBatch && !$config->getQueryBatching()) {
+            throw new RequestError('Batched queries are not supported by this server');
+        }
+    }
+    
+    /**
+     * @param OperationParams $params
+     *
+     * @return Error[]
+     */
+    private function getErrorsForOperationParams(OperationParams $params) : array
+    {
+        $errors = $this->validateOperationParams($params);
+        
+        return $errors !== []
+            ? $this->formatOperationParamsErrors($errors)
+            : $errors;
+    }
+    
+    /**
+     * @param array $errors
+     *
+     * @return Error[]
+     */
+    private function formatOperationParamsErrors(array $errors) : array
+    {
+        $mapping = static function (RequestError $error) {
+            return Error::createLocatedError($error, null, null);
         };
         
-        return $result->then($applyErrorHandling);
+        return \array_map($mapping, $errors);
     }
     
     /**
@@ -168,9 +338,8 @@ class Helper extends BaseHelper
      * @param OperationParams $params
      *
      * @return Error[]
-     * @api
      */
-    public function validateOperationParams(OperationParams $params)
+    public function validateOperationParams(OperationParams $params) : array
     {
         $errors = [];
         if (!$params->query && !$params->queryId) {
@@ -216,6 +385,7 @@ class Helper extends BaseHelper
      * @param OperationParams $op
      *
      * @return mixed
+     *
      * @throws RequestError
      */
     private function loadPersistedQuery(ServerConfig $config, OperationParams $op)
@@ -224,7 +394,7 @@ class Helper extends BaseHelper
         $loader = $config->getPersistentQueryLoader();
         
         if (!$loader) {
-            throw new RequestError("Persisted queries are not supported by this server");
+            throw new RequestError('Persisted queries are not supported by this server');
         }
         
         $source = $loader($op->queryId, $op);
@@ -232,7 +402,7 @@ class Helper extends BaseHelper
         if (!is_string($source) && !$source instanceof DocumentNode) {
             throw new InvariantViolation(
                 sprintf(
-                    "Persistent query loader must return query string or instance of %s but got: %s",
+                    'Persistent query loader must return query string or instance of %s but got: %s',
                     DocumentNode::class,
                     Utils::printSafe($source)
                 )
@@ -246,7 +416,7 @@ class Helper extends BaseHelper
      * @param ServerConfig    $config
      * @param OperationParams $params
      * @param DocumentNode    $doc
-     * @param                 $operationType
+     * @param mixed           $operationType
      *
      * @return mixed
      */
@@ -265,7 +435,7 @@ class Helper extends BaseHelper
      * @param ServerConfig    $config
      * @param OperationParams $params
      * @param DocumentNode    $doc
-     * @param                 $operationType
+     * @param mixed           $operationType
      *
      * @return mixed
      */
@@ -288,7 +458,7 @@ class Helper extends BaseHelper
      * @param ServerConfig    $config
      * @param OperationParams $params
      * @param DocumentNode    $doc
-     * @param                 $operationType
+     * @param mixed           $operationType
      *
      * @return array
      */
@@ -297,7 +467,7 @@ class Helper extends BaseHelper
         OperationParams $params,
         DocumentNode $doc,
         $operationType
-    ) {
+    ) : array {
         // Allow customizing validation rules per operation:
         $validationRules = $config->getValidationRules();
         
@@ -307,7 +477,7 @@ class Helper extends BaseHelper
             if (!is_array($validationRules)) {
                 throw new InvariantViolation(
                     sprintf(
-                        "Expecting validation rules to be array or callable returning array, but got: %s",
+                        'Expecting validation rules to be array or callable returning array, but got: %s',
                         Utils::printSafe($validationRules)
                     )
                 );
@@ -335,21 +505,17 @@ class Helper extends BaseHelper
      * @param callable|null $readRawBodyFn
      *
      * @return OperationParams|OperationParams[]
+     *
      * @throws RequestError
-     * @api
      */
     public function parseHttpRequest(callable $readRawBodyFn = null)
     {
-        $method = isset($_SERVER['REQUEST_METHOD'])
-            ? $_SERVER['REQUEST_METHOD']
-            : null;
+        $method = $_SERVER['REQUEST_METHOD'] ?? null;
         $bodyParams = [];
         $urlParams = $_GET;
         
         if ($method === 'POST') {
-            $contentType = isset($_SERVER['CONTENT_TYPE'])
-                ? $_SERVER['CONTENT_TYPE']
-                : null;
+            $contentType = $_SERVER['CONTENT_TYPE'] ?? null;
             
             if (stripos($contentType, 'application/graphql') !== false) {
                 $rawBody = $readRawBodyFn
@@ -370,20 +536,20 @@ class Helper extends BaseHelper
                 );
                 
                 if (json_last_error()) {
-                    throw new RequestError("Could not parse JSON: " . json_last_error_msg());
+                    throw new RequestError('Could not parse JSON: ' . json_last_error_msg());
                 }
                 if (!is_array($bodyParams)) {
                     throw new RequestError(
-                        "GraphQL Server expects JSON object or array, but got " .
+                        'GraphQL Server expects JSON object or array, but got ' .
                         Utils::printSafeJson($bodyParams)
                     );
                 }
             } elseif (stripos($contentType, 'application/x-www-form-urlencoded') !== false) {
                 $bodyParams = $_POST;
-            } elseif (null === $contentType) {
+            } elseif ($contentType === null) {
                 throw new RequestError('Missing "Content-Type" header');
             } else {
-                throw new RequestError("Unexpected content type: " . Utils::printSafeJson($contentType));
+                throw new RequestError('Unexpected content type: ' . Utils::printSafeJson($contentType));
             }
         }
         
@@ -398,7 +564,7 @@ class Helper extends BaseHelper
      * @param OperationParams $op
      *
      * @return ExecutionResult|Promise
-     * @api
+     *
      */
     public function executeOperation(ServerConfig $config, OperationParams $op)
     {
@@ -417,48 +583,59 @@ class Helper extends BaseHelper
      * Send response using standard PHP `header()` and `echo`.
      *
      * @param Promise|ExecutionResult|ExecutionResult[] $result
-     * @param bool                                      $exitWhenDone
-     *
-     * @api
+     * @param bool|null                                 $exitWhenDone If **true**, the program will exit when done.
+     *                                                                Default: **false**.
      */
-    public function sendResponse($result, $exitWhenDone = false)
+    public function sendResponse($result, ?bool $exitWhenDone = null) : void
     {
+        $exitWhenDone = $exitWhenDone ?? false;
+        
         if ($result instanceof Promise) {
-            $result->then(
-                function ($actualResult) use ($exitWhenDone) {
-                    $this->doSendResponse($actualResult, $exitWhenDone);
-                }
-            );
+            $this->sendPromiseResponse($result, $exitWhenDone);
         } else {
             $this->doSendResponse($result, $exitWhenDone);
         }
     }
     
     /**
-     * @param $result
-     * @param $exitWhenDone
+     * @param Promise $result
+     * @param bool    $exitWhenDone
      */
-    private function doSendResponse($result, $exitWhenDone)
+    private function sendPromiseResponse(Promise $result, bool $exitWhenDone) : void
+    {
+        $result->then(
+            function ($actualResult) use ($exitWhenDone) {
+                $this->doSendResponse($actualResult, $exitWhenDone);
+            }
+        );
+    }
+    
+    /**
+     * @param mixed $result
+     * @param bool  $exitWhenDone
+     */
+    private function doSendResponse($result, bool $exitWhenDone) : void
     {
         $httpStatus = $this->resolveHttpStatus($result);
+        
         $this->emitResponse($result, $httpStatus, $exitWhenDone);
     }
     
     /**
-     * @param $result
+     * @param mixed $result
      *
      * @return int
      */
-    private function resolveHttpStatus($result)
+    private function resolveHttpStatus($result) : int
     {
         if (is_array($result) && isset($result[0])) {
             Utils::each(
                 $result,
-                function ($executionResult, $index) {
+                static function ($executionResult, $index) {
                     if (!$executionResult instanceof ExecutionResult) {
                         throw new InvariantViolation(
                             sprintf(
-                                "Expecting every entry of batched query result to be instance of %s but entry at position %d is %s",
+                                'Expecting every entry of batched query result to be instance of %s but entry at position %d is %s',
                                 ExecutionResult::class,
                                 $index,
                                 Utils::printSafe($executionResult)
@@ -472,7 +649,7 @@ class Helper extends BaseHelper
             if (!$result instanceof ExecutionResult) {
                 throw new InvariantViolation(
                     sprintf(
-                        "Expecting query result to be instance of %s but got %s",
+                        'Expecting query result to be instance of %s but got %s',
                         ExecutionResult::class,
                         Utils::printSafe($result)
                     )
@@ -493,7 +670,7 @@ class Helper extends BaseHelper
      * @param int                     $httpStatus
      * @param bool                    $exitWhenDone
      */
-    public function emitResponse($jsonSerializable, $httpStatus, $exitWhenDone)
+    public function emitResponse($jsonSerializable, $httpStatus, $exitWhenDone) : void
     {
         $body = json_encode($jsonSerializable);
         header('Content-Type: application/json', true, $httpStatus);
@@ -510,8 +687,8 @@ class Helper extends BaseHelper
      * @param ServerRequestInterface $request
      *
      * @return array|BaseHelper
+     *
      * @throws RequestError
-     * @api
      */
     public function parsePsrRequest(ServerRequestInterface $request)
     {
@@ -528,16 +705,16 @@ class Helper extends BaseHelper
                 $bodyParams = ['query' => $request->getBody()->getContents()];
             } elseif (stripos('application/json', $contentType[0]) !== false) {
                 $bodyParams = $request->getParsedBody();
-                
-                if (null === $bodyParams) {
+    
+                if ($bodyParams === null) {
                     throw new InvariantViolation(
-                        "PSR-7 request is expected to provide parsed body for \"application/json\" requests but got null"
+                        'PSR-7 request is expected to provide parsed body for "application/json" requests but got null'
                     );
                 }
                 
                 if (!is_array($bodyParams)) {
                     throw new RequestError(
-                        "GraphQL Server expects JSON object or array, but got " .
+                        'GraphQL Server expects JSON object or array, but got ' .
                         Utils::printSafeJson($bodyParams)
                     );
                 }
@@ -545,7 +722,7 @@ class Helper extends BaseHelper
                 $bodyParams = $request->getParsedBody();
                 
                 if (!is_array($bodyParams)) {
-                    throw new RequestError("Unexpected content type: " . Utils::printSafeJson($contentType[0]));
+                    throw new RequestError('Unexpected content type: ' . Utils::printSafeJson($contentType[0]));
                 }
             }
         }
@@ -558,33 +735,56 @@ class Helper extends BaseHelper
     }
     
     /**
-     * Converts query execution result to PSR-7 response
+     * Converts query execution result to PSR-7 response.
      *
      * @param Promise|ExecutionResult|ExecutionResult[] $result
      * @param ResponseInterface                         $response
      * @param StreamInterface                           $writableBodyStream
      *
      * @return Promise|ResponseInterface
-     * @api
      */
     public function toPsrResponse($result, ResponseInterface $response, StreamInterface $writableBodyStream)
     {
-        if ($result instanceof Promise) {
-            return $result->then(
-                function ($actualResult) use ($response, $writableBodyStream) {
-                    return $this->doConvertToPsrResponse($actualResult, $response, $writableBodyStream);
-                }
-            );
-        } else {
-            return $this->doConvertToPsrResponse($result, $response, $writableBodyStream);
-        }
+        return $result instanceof Promise
+            ? $this->convertPromiseToPsrResponse($result, $response, $writableBodyStream)
+            : $this->doConvertToPsrResponse($result, $response, $writableBodyStream);
     }
     
-    private function doConvertToPsrResponse($result, ResponseInterface $response, StreamInterface $writableBodyStream)
-    {
+    /**
+     * @param Promise           $result
+     * @param ResponseInterface $response
+     * @param StreamInterface   $writableBodyStream
+     *
+     * @return Promise
+     */
+    private function convertPromiseToPsrResponse(
+        Promise $result,
+        ResponseInterface $response,
+        StreamInterface $writableBodyStream
+    ) : Promise {
+        $callback = function ($actualResult) use ($response, $writableBodyStream) {
+            return $this->doConvertToPsrResponse($actualResult, $response, $writableBodyStream);
+        };
+        
+        return $result->then($callback);
+    }
+    
+    /**
+     * @param mixed             $result
+     * @param ResponseInterface $response
+     * @param StreamInterface   $writableBodyStream
+     *
+     * @return ResponseInterface
+     */
+    private function doConvertToPsrResponse(
+        $result,
+        ResponseInterface $response,
+        StreamInterface $writableBodyStream
+    ) : ResponseInterface {
         $httpStatus = $this->resolveHttpStatus($result);
         
-        $result = json_encode($result);
+        // FIXME: Use Symfony's JsonEncode!
+        $result = \json_encode($result);
         $writableBodyStream->write($result);
         
         return $response
@@ -598,7 +798,7 @@ class Helper extends BaseHelper
      */
     private function readRawBody()
     {
-        return file_get_contents('php://input');
+        return \file_get_contents('php://input');
     }
     
     /**
@@ -612,8 +812,8 @@ class Helper extends BaseHelper
      * @param array  $queryParams
      *
      * @return OperationParams|OperationParams[]
+     *
      * @throws RequestError
-     * @api
      */
     public function parseRequestParams($method, array $bodyParams, array $queryParams)
     {

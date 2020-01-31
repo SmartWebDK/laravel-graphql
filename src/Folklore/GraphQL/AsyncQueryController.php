@@ -8,9 +8,11 @@ namespace Folklore\GraphQL;
 use Folklore\GraphQL\Error\ErrorFormatter;
 use Folklore\GraphQL\Error\InvalidConfigError;
 use Folklore\GraphQL\Events\RequestResolved;
+use Folklore\GraphQL\Server\StandardServer;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\Executor\Promise\Promise;
 use GraphQL\Executor\Promise\PromiseAdapter;
+use GraphQL\Server\RequestError;
 use GraphQL\Server\ServerConfig;
 use GraphQL\Type\Schema;
 use GraphQL\Utils\Utils;
@@ -173,6 +175,7 @@ class AsyncQueryController extends Controller
      *
      * @throws Exception\SchemaNotFound
      * @throws Exception\TypeNotFound
+     * @throws RequestError
      */
     public function query(ServerRequestInterface $request, ?string $graphql_schema = null) : JsonResponse
     {
@@ -180,8 +183,8 @@ class AsyncQueryController extends Controller
         $connection = Container::getInstance()->get(ConnectionInterface::class);
         
         $graphQLSchema = $graphql_schema ?? $this->config->get('graphql.schema');
-        
-        $server = new Server($this->getServerConfig($graphQLSchema));
+    
+        $server = new StandardServer($this->getServerConfig($graphQLSchema));
         
         $connection->beginTransaction();
         
@@ -207,7 +210,7 @@ class AsyncQueryController extends Controller
     /**
      * @param string|null $schemaName
      *
-     * @return array
+     * @return ServerConfig
      *
      * @throws Exception\SchemaNotFound
      * @throws Exception\TypeNotFound
@@ -271,8 +274,8 @@ class AsyncQueryController extends Controller
         
         return \array_reduce(
             $errors,
-            static function ($authorized, $error) {
-                return !(!$authorized || Arr::get($error, 'message') === 'Unauthorized');
+            static function (bool $authorized, array $error) {
+                return $authorized && !Arr::get($error, 'message') === 'Unauthorized';
             },
             true
         );
@@ -319,10 +322,8 @@ class AsyncQueryController extends Controller
         $additionalResolversSchemaName = \is_string($schemaName)
             ? $schemaName
             : $this->config->get('graphql.schema', 'default');
-        
-        $additionalResolvers = $this->config->get('graphql.resolvers.' . $additionalResolversSchemaName, []);
-        
-        return $additionalResolvers;
+    
+        return $this->config->get('graphql.resolvers.' . $additionalResolversSchemaName, []);
     }
     
     /**
