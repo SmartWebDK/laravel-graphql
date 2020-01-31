@@ -163,11 +163,16 @@ class SequentialQueryController extends Controller
     {
         $isBatch = !$request->has('query');
         $inputs = $request->all();
-        
+    
         if (is_null($graphql_schema)) {
             $graphql_schema = config('graphql.schema');
         }
-        
+    
+        /** @var ConnectionInterface $connection */
+        $connection = Container::getInstance()->get(ConnectionInterface::class);
+    
+        $connection->beginTransaction();
+    
         if (!$isBatch) {
             $data = $this->executeQuery($graphql_schema, $inputs);
         } else {
@@ -176,13 +181,20 @@ class SequentialQueryController extends Controller
                 $data[] = $this->executeQuery($graphql_schema, $input);
             }
         }
-        
+    
         $headers = config('graphql.headers', []);
         $options = config('graphql.json_encoding_options', 0);
-        
+    
         $errors = !$isBatch
             ? array_get($data, 'errors', [])
             : [];
+    
+        if ($errors !== []) {
+            $connection->rollBack();
+        } else {
+            $connection->commit();
+        }
+    
         $authorized = array_reduce(
             $errors,
             function ($authorized, $error) {
