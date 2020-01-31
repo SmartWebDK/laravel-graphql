@@ -1,13 +1,15 @@
 <?php
 
+use Folklore\GraphQL\GraphQLController;
+use Folklore\GraphQL\View\GraphiQLComposer;
 
 return [
-
+    
     /*
      * The prefix for routes
      */
-    'prefix' => 'graphql',
-
+    'prefix'               => 'graphql',
+    
     /*
      * The domain for routes
      */
@@ -46,15 +48,15 @@ return [
      *     'mutation' => '\Folklore\GraphQL\GraphQLController@mutation'
      * ]
      */
-    'controllers' => \Folklore\GraphQL\GraphQLController::class.'@query',
-
+    'controllers'          => GraphQLController::class . '@query',
+    
     /*
      * The name of the input variable that contain variables when you query the
      * endpoint. Most libraries use "variables", you can change it here in case you need it.
      * In previous versions, the default used to be "params"
      */
     'variables_input_name' => 'variables',
-
+    
     /*
      * Any middleware for the 'graphql' route group
      */
@@ -83,11 +85,11 @@ return [
      * To disable GraphiQL, set this to null
      */
     'graphiql' => [
-        'routes' => '/graphiql/{graphql_schema?}',
-        'controller' => \Folklore\GraphQL\GraphQLController::class.'@graphiql',
+        'routes'     => '/graphiql/{graphql_schema?}',
+        'controller' => GraphQLController::class . '@graphiql',
         'middleware' => [],
-        'view' => 'graphql::graphiql',
-        'composer' => \Folklore\GraphQL\View\GraphiQLComposer::class,
+        'view'       => 'graphql::graphiql',
+        'composer'   => GraphiQLComposer::class,
     ],
 
     /*
@@ -209,15 +211,24 @@ return [
      *   RETHROW_INTERNAL_EXCEPTIONS(4): Causes the query to throw if there was an exception during resolution
      */
     'debug_mode' => \env('GRAPHQL_DEBUG_MODE', false),
-
+    
     /*
      * Options to limit the query complexity and depth. See the doc
      * @ https://github.com/webonyx/graphql-php#security
      * for details. Disabled by default.
      */
-    'security' => [
-        'query_max_complexity' => null,
-        'query_max_depth' => null,
-        'disable_introspection' => false
-    ]
+    'security'             => [
+        'query_max_complexity'  => null,
+        'query_max_depth'       => null,
+        'disable_introspection' => false,
+    ],
+    
+    /*
+     * Toggle for controlling if batched queries should be resolved sequentially,
+     * or asynchronously using promises.
+     *
+     * When set to FALSE, the context for field resolution is changed to include
+     * the index of the batch to which the field belongs.
+     */
+    'sequential_queries'   => \env('GRAPHQL_SEQUENTIAL_QUERIES', true),
 ];

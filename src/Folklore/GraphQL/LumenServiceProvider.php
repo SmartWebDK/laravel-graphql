@@ -1,9 +1,13 @@
 <?php namespace Folklore\GraphQL;
 
+use Folklore\GraphQL\Console\PublishCommand;
+use Illuminate\Contracts\Config\Repository;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Facade;
 
 class LumenServiceProvider extends ServiceProvider
 {
+    
     /**
      * Get the active router.
      *
@@ -13,39 +17,37 @@ class LumenServiceProvider extends ServiceProvider
     {
         return property_exists($this->app, 'router') ? $this->app->router : $this->app;
     }
-
+    
     /**
      * Bootstrap publishes
-     *
-     * @return void
      */
-    protected function bootPublishes()
+    protected function bootPublishes() : void
     {
         $configPath = __DIR__ . '/../../config';
-        $viewsPath = __DIR__.'/../../resources/views';
+        $viewsPath = __DIR__ . '/../../resources/views';
         $this->mergeConfigFrom($configPath . '/config.php', 'graphql');
         $this->loadViewsFrom($viewsPath, 'graphql');
     }
-
+    
     /**
      * Bootstrap router
      *
-     * @return void
+     * @param Repository $config
      */
-    protected function bootRouter()
+    protected function bootRouter(Repository $config) : void
     {
         if ($this->app['config']->get('graphql.routes')) {
-            $router = $this->getRouter();
-            include __DIR__.'/routes.php';
+            Routes::register($this->getRouter());
         }
     }
-
+    
     /**
-     * Register facade
+     * Register GraphQL facade.
      *
-     * @return void
+     * @param Repository $config
+     * @param Dispatcher $dispatcher
      */
-    public function registerGraphQL()
+    protected function registerGraphQL(Repository $config, Dispatcher $dispatcher) : void
     {
         static $registred = false;
         // Check if facades are activated
@@ -53,17 +55,17 @@ class LumenServiceProvider extends ServiceProvider
             class_alias(\Folklore\GraphQL\Support\Facades\GraphQL::class, 'GraphQL');
             $registred = true;
         }
-
-        parent::registerGraphQL();
+        
+        parent::registerGraphQL($config, $dispatcher);
     }
-
+    
     /**
      * Register the helper command to publish the config file
      */
-    public function registerConsole()
+    public function registerConsole() : void
     {
         parent::registerConsole();
-
-        $this->commands(\Folklore\GraphQL\Console\PublishCommand::class);
+        
+        $this->commands(PublishCommand::class);
     }
 }

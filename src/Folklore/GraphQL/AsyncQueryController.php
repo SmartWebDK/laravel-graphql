@@ -12,7 +12,6 @@ use GraphQL\Executor\ExecutionResult;
 use GraphQL\Executor\Promise\Promise;
 use GraphQL\Executor\Promise\PromiseAdapter;
 use GraphQL\Server\ServerConfig;
-use GraphQL\Server\StandardServer;
 use GraphQL\Type\Schema;
 use GraphQL\Utils\Utils;
 use Illuminate\Container\Container;
@@ -35,7 +34,7 @@ use Psr\Http\Message\ServerRequestInterface;
  *
  * @api
  */
-class GraphQLController extends Controller
+class AsyncQueryController extends Controller
 {
     
     /**
@@ -124,6 +123,27 @@ class GraphQLController extends Controller
     /**
      * @param Route|object|string $route
      *
+     * @return string
+     */
+    private function getSchemaFromRoute($route) : string
+    {
+        $defaultSchema = $this->config->get('graphql.schema');
+        $prefix = $this->config->get('graphql.prefix');
+        
+        $schema = $defaultSchema;
+        
+        if (\is_array($route)) {
+            $schema = Arr::get($route, '2.' . $prefix . '_schema', $defaultSchema);
+        } elseif (\is_object($route)) {
+            $schema = $route->parameter($prefix . '_schema', $defaultSchema);
+        }
+        
+        return $schema;
+    }
+    
+    /**
+     * @param Route|object|string $route
+     *
      * @return null|string
      */
     private function getRouteName($route) : ?string
@@ -146,27 +166,6 @@ class GraphQLController extends Controller
     }
     
     /**
-     * @param Route|object|string $route
-     *
-     * @return string
-     */
-    private function getSchemaFromRoute($route) : string
-    {
-        $defaultSchema = $this->config->get('graphql.schema');
-        $prefix = $this->config->get('graphql.prefix');
-        
-        $schema = $defaultSchema;
-        
-        if (\is_array($route)) {
-            $schema = Arr::get($route, '2.' . $prefix . '_schema', $defaultSchema);
-        } elseif (\is_object($route)) {
-            $schema = $route->parameter($prefix . '_schema', $defaultSchema);
-        }
-        
-        return $schema;
-    }
-    
-    /**
      * @param ServerRequestInterface $request
      * @param null|string            $graphql_schema
      *
@@ -175,136 +174,14 @@ class GraphQLController extends Controller
      * @throws Exception\SchemaNotFound
      * @throws Exception\TypeNotFound
      */
-    public function query(Request $request, ?string $graphql_schema = null) : JsonResponse
-    {
-        /** @var ConnectionInterface $connection */
-        $connection = Container::getInstance()->get(ConnectionInterface::class);
-        
-        $isBatch = !$request->has('query');
-        $inputs = $request->all();
-        
-        $schemaName = $this->getSchemaName($graphql_schema);
-        
-        $connection->beginTransaction();
-        
-        if (!$isBatch) {
-            $results = $this->executeQuery($schemaName, $inputs, 0);
-        } else {
-            $results = [];
-            foreach ($inputs as $batchIndex => $input) {
-                $results[] = $this->executeQuery($schemaName, $input, $batchIndex);
-            }
-        }
-        
-        $errors = $this->getSequentialErrors($results, $isBatch);
-        
-        if ($errors !== []) {
-            $connection->rollBack();
-        } else {
-            $connection->commit();
-        }
-        
-        if (!$this->isAuthorized($errors)) {
-            return $this->response($results, 403);
-        }
-        
-        $this->dispatcher->dispatch(new RequestResolved($schemaName, $errors));
-        
-        return $this->response($results, 200);
-    }
-    
-    /**
-     * @param array $results
-     * @param bool  $isBatch
-     *
-     * @return array
-     */
-    private function getSequentialErrors(array $results, bool $isBatch) : array
-    {
-        return !$isBatch
-            ? Arr::get($results, 'errors', [])
-            : [];
-    }
-    
-    /**
-     * @param string $schemaName
-     * @param array  $input
-     *
-     * @return array
-     *
-     * @throws Exception\SchemaNotFound
-     * @throws Exception\TypeNotFound
-     */
-    protected function executeQuery(string $schemaName, array $input, int $batchIndex) : array
-    {
-        return $this->graphQL->query(
-            $this->getQuery($input),
-            $variables = $this->getVariablesInput($input),
-            [
-                'context'       => \array_merge(
-                    $this->getQueryContext(),
-                    [
-                        'batchInde' => $batchIndex,
-                    ]
-                ),
-                'schema'        => $schemaName,
-                'operationName' => $this->getOperationName($input),
-            ]
-        );
-    }
-    
-    /**
-     * @param array $input
-     *
-     * @return string
-     */
-    private function getQuery(array $input) : string
-    {
-        return Arr::get($input, 'query');
-    }
-    
-    /**
-     * @param array $input
-     *
-     * @return string
-     */
-    private function getOperationName(array $input) : string
-    {
-        return Arr::get($input, 'operationName');
-    }
-    
-    /**
-     * @param array $input
-     *
-     * @return array
-     */
-    private function getVariablesInput(array $input) : array
-    {
-        $variablesInputName = $this->config->get('graphql.variables_input_name', 'variables');
-        $variables = Arr::get($input, $variablesInputName);
-        
-        return \is_string($variables)
-            ? \json_decode($variables, true)
-            : $variables;
-    }
-    
-    /**
-     * @param ServerRequestInterface $request
-     * @param null|string            $graphql_schema
-     *
-     * @return JsonResponse
-     *
-     * @throws Exception\SchemaNotFound
-     * @throws Exception\TypeNotFound
-     */
-    public function query2(ServerRequestInterface $request, ?string $graphql_schema = null) : JsonResponse
+    public function query(ServerRequestInterface $request, ?string $graphql_schema = null) : JsonResponse
     {
         /** @var ConnectionInterface $connection */
         $connection = Container::getInstance()->get(ConnectionInterface::class);
         
         $graphQLSchema = $graphql_schema ?? $this->config->get('graphql.schema');
         
-        $server = new StandardServer($this->getServerConfig($graphQLSchema));
+        $server = new Server($this->getServerConfig($graphQLSchema));
         
         $connection->beginTransaction();
         
@@ -325,89 +202,6 @@ class GraphQLController extends Controller
         $this->dispatcher->dispatch(new RequestResolved($graphQLSchema, $errors));
         
         return $this->response($results, 200);
-    }
-    
-    /**
-     * @param ExecutionResult|ExecutionResult[]|Promise $results
-     *
-     * @return array
-     */
-    private function getResultErrors($results) : array
-    {
-        // FIXME: Missing tests!
-        $errors = [[]];
-        
-        if ($results instanceof ExecutionResult || $results instanceof Promise) {
-            $errors[] = $results->errors;
-        }
-        
-        if (\is_array($results)) {
-            foreach ($results as $result) {
-                /** @var ExecutionResult $result */
-                $errors[] = $result->errors;
-            }
-        }
-        
-        return \array_merge(...$errors);
-    }
-    
-    /**
-     * @param ExecutionResult|ExecutionResult[]|Promise $results
-     * @param int                                       $status
-     *
-     * @return JsonResponse
-     */
-    private function response($results, int $status) : JsonResponse
-    {
-        // FIXME: Missing tests!
-        // FIXME: Move to separate Http\ResponseFactory class!
-        $headers = $this->config->get('graphql.headers', []);
-        $options = $this->config->get('graphql.json_encoding_options', 0);
-    
-        return $this->responseFactory->json($results, $status, $headers, $options);
-    }
-    
-    /**
-     * @param array $errors
-     *
-     * @return bool
-     */
-    private function isAuthorized(array $errors) : bool
-    {
-        // FIXME: Missing tests!
-        // No need to analyze error array if no errors arose.
-        if ($errors === []) {
-            return true;
-        }
-        
-        return \array_reduce(
-            $errors,
-            static function ($authorized, $error) {
-                return !(!$authorized || Arr::get($error, 'message') === 'Unauthorized');
-            },
-            true
-        );
-    }
-    
-    /**
-     * @param Request     $request
-     * @param null|string $graphql_schema
-     *
-     * @return View
-     */
-    public function graphiql(
-        /** @noinspection PhpUnusedParameterInspection */
-        Request $request,
-        ?string $graphql_schema = null
-    ) : View {
-        $view = $this->config->get('graphql.graphiql.view', 'graphql::graphiql');
-        
-        return $this->viewFactory->make(
-            $view,
-            [
-                'graphql_schema' => $graphql_schema,
-            ]
-        );
     }
     
     /**
@@ -439,6 +233,68 @@ class GraphQLController extends Controller
     }
     
     /**
+     * @param ExecutionResult|ExecutionResult[]|Promise $results
+     *
+     * @return array
+     */
+    private function getResultErrors($results) : array
+    {
+        // FIXME: Missing tests!
+        $errors = [[]];
+        
+        if ($results instanceof ExecutionResult || $results instanceof Promise) {
+            $errors[] = $results->errors;
+        }
+        
+        if (\is_array($results)) {
+            foreach ($results as $result) {
+                /** @var ExecutionResult $result */
+                $errors[] = $result->errors;
+            }
+        }
+        
+        return \array_merge(...$errors);
+    }
+    
+    /**
+     * @param array $errors
+     *
+     * @return bool
+     */
+    private function isAuthorized(array $errors) : bool
+    {
+        // FIXME: Missing tests!
+        // No need to analyze error array if no errors arose.
+        if ($errors === []) {
+            return true;
+        }
+        
+        return \array_reduce(
+            $errors,
+            static function ($authorized, $error) {
+                return !(!$authorized || Arr::get($error, 'message') === 'Unauthorized');
+            },
+            true
+        );
+    }
+    
+    /**
+     * @param ExecutionResult|ExecutionResult[]|Promise $results
+     * @param int                                       $status
+     *
+     * @return JsonResponse
+     */
+    private function response($results, int $status) : JsonResponse
+    {
+        // FIXME: Missing tests!
+        // FIXME: Move to separate Http\ResponseFactory class!
+        $headers = $this->config->get('graphql.headers', []);
+        $options = $this->config->get('graphql.json_encoding_options', 0);
+        
+        return $this->responseFactory->json($results, $status, $headers, $options);
+    }
+    
+    /**
      * @param string|null $schemaName
      *
      * @return Schema
@@ -451,16 +307,6 @@ class GraphQLController extends Controller
         $graphQLSchema = $this->getSchemaName($schemaName);
         
         return $this->graphQL->schema($graphQLSchema);
-    }
-    
-    /**
-     * @param string|null $schemaName
-     *
-     * @return string
-     */
-    private function getSchemaName(?string $schemaName) : string
-    {
-        return $schemaName ?? $this->config->get('graphql.schema');
     }
     
     /**
@@ -501,7 +347,7 @@ class GraphQLController extends Controller
     private function getFieldResolver() : ?callable
     {
         $resolver = $this->config->get('graphql.defaultFieldResolver');
-    
+        
         return \is_string($resolver)
             ? \resolve($resolver)
             : $resolver;
@@ -550,5 +396,36 @@ class GraphQLController extends Controller
     private function getPromiseAdapter() : ?PromiseAdapter
     {
         return null;
+    }
+    
+    /**
+     * @param string|null $schemaName
+     *
+     * @return string
+     */
+    private function getSchemaName(?string $schemaName) : string
+    {
+        return $schemaName ?? $this->config->get('graphql.schema');
+    }
+    
+    /**
+     * @param Request     $request
+     * @param null|string $graphql_schema
+     *
+     * @return View
+     */
+    public function graphiql(
+        /** @noinspection PhpUnusedParameterInspection */
+        Request $request,
+        ?string $graphql_schema = null
+    ) : View {
+        $view = $this->config->get('graphql.graphiql.view', 'graphql::graphiql');
+        
+        return $this->viewFactory->make(
+            $view,
+            [
+                'graphql_schema' => $graphql_schema,
+            ]
+        );
     }
 }

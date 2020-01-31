@@ -59,8 +59,7 @@ class ServiceProvider extends BaseServiceProvider
         $app = $this->app;
     
         if ($config->get('graphql.routes') && !$app->routesAreCached()) {
-            $router = $this->getRouter();
-            include __DIR__ . '/routes.php';
+            Routes::register($this->getRouter());
         }
     }
     
