@@ -470,21 +470,21 @@ class Helper
     ) : array {
         // Allow customizing validation rules per operation:
         $validationRules = $config->getValidationRules();
-        
-        if (is_callable($validationRules)) {
+    
+        if (\is_callable($validationRules)) {
             $validationRules = $validationRules($params, $doc, $operationType);
-            
-            if (!is_array($validationRules)) {
+        
+            if (!\is_array($validationRules)) {
                 throw new InvariantViolation(
-                    sprintf(
+                    \sprintf(
                         'Expecting validation rules to be array or callable returning array, but got: %s',
                         Utils::printSafe($validationRules)
                     )
                 );
             }
         }
-        
-        return $validationRules;
+    
+        return $validationRules ?? [];
     }
     
     /**
