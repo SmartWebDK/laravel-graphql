@@ -223,9 +223,11 @@ class ServiceProvider extends BaseServiceProvider
         );
         
         $this->app->singleton(
-            'graphql',
+            GraphQL::class,
             function (Application $app) use ($config, $dispatcher) {
-                $graphql = $app->make(GraphQL::class);
+                $typeRegistry = $this->app->get(TypeRegistryInterface::class);
+        
+                $graphql = new GraphQL($app, $typeRegistry, $dispatcher);
         
                 $this->addTypes($config, $graphql);
         
@@ -234,10 +236,12 @@ class ServiceProvider extends BaseServiceProvider
                 $this->registerEventListeners($dispatcher, $graphql);
         
                 $this->applySecurityRules($config);
-                
+        
                 return $graphql;
             }
         );
+    
+        $this->app->alias(GraphQL::class, 'graphql');
     }
     
     /**
