@@ -274,7 +274,7 @@ class AsyncQueryController extends Controller
         
         return \array_reduce(
             $errors,
-            static function (bool $authorized, array $error) {
+            static function (bool $authorized, $error) {
                 return $authorized && !Arr::get($error, 'message') === 'Unauthorized';
             },
             true
