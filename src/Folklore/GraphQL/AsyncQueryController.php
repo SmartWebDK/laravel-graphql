@@ -8,6 +8,7 @@ namespace Folklore\GraphQL;
 use Folklore\GraphQL\Error\ErrorFormatter;
 use Folklore\GraphQL\Error\InvalidConfigError;
 use Folklore\GraphQL\Events\RequestResolved;
+use Folklore\GraphQL\Http\Controller\DetectsAuthorizationErrors;
 use Folklore\GraphQL\Server\StandardServer;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\Executor\Promise\Promise;
@@ -38,6 +39,8 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 class AsyncQueryController extends Controller
 {
+    
+    use DetectsAuthorizationErrors;
     
     /**
      * @var Repository
@@ -257,28 +260,6 @@ class AsyncQueryController extends Controller
         }
         
         return \array_merge(...$errors);
-    }
-    
-    /**
-     * @param array $errors
-     *
-     * @return bool
-     */
-    private function isAuthorized(array $errors) : bool
-    {
-        // FIXME: Missing tests!
-        // No need to analyze error array if no errors arose.
-        if ($errors === []) {
-            return true;
-        }
-        
-        return \array_reduce(
-            $errors,
-            static function (bool $authorized, $error) {
-                return $authorized && !Arr::get($error, 'message') === 'Unauthorized';
-            },
-            true
-        );
     }
     
     /**

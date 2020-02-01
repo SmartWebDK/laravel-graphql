@@ -6,6 +6,7 @@ declare(strict_types = 1);
 namespace Folklore\GraphQL;
 
 use Folklore\GraphQL\Events\RequestResolved;
+use Folklore\GraphQL\Http\Controller\DetectsAuthorizationErrors;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\Executor\Promise\Promise;
 use Illuminate\Container\Container;
@@ -13,12 +14,12 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Routing\ResponseFactory;
 use Illuminate\Contracts\View\Factory;
-use Illuminate\Contracts\View\View;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Arr;
+use Illuminate\View\View;
 
 /**
  * Controller handling HTTP requests for the GraphQL end-points using sequential
@@ -30,6 +31,8 @@ use Illuminate\Support\Arr;
  */
 class SequentialQueryController extends Controller
 {
+    
+    use DetectsAuthorizationErrors;
     
     /**
      * @var Repository
@@ -159,20 +162,26 @@ class SequentialQueryController extends Controller
             : null;
     }
     
+    /**
+     * @param Request $request
+     * @param null    $graphql_schema
+     *
+     * @return JsonResponse
+     */
     public function query(Request $request, $graphql_schema = null)
     {
         $isBatch = !$request->has('query');
         $inputs = $request->all();
-    
+        
         if (is_null($graphql_schema)) {
             $graphql_schema = config('graphql.schema');
         }
-    
+        
         /** @var ConnectionInterface $connection */
         $connection = Container::getInstance()->get(ConnectionInterface::class);
-    
+        
         $connection->beginTransaction();
-    
+        
         if (!$isBatch) {
             $data = $this->executeQuery($graphql_schema, $inputs);
         } else {
@@ -181,29 +190,22 @@ class SequentialQueryController extends Controller
                 $data[] = $this->executeQuery($graphql_schema, $input);
             }
         }
-    
+        
         $headers = config('graphql.headers', []);
         $options = config('graphql.json_encoding_options', 0);
-    
+        
         $errors = !$isBatch
             ? array_get($data, 'errors', [])
             : [];
-    
+        
         if ($errors !== []) {
             $connection->rollBack();
         } else {
             $connection->commit();
         }
-    
-        $authorized = array_reduce(
-            $errors,
-            function ($authorized, $error) {
-                return !$authorized || array_get($error, 'message') === 'Unauthorized'
-                    ? false
-                    : true;
-            },
-            true
-        );
+        
+        $authorized = $this->isAuthorized($errors);
+        
         if (!$authorized) {
             return response()->json($data, 403, $headers, $options);
         }
@@ -215,13 +217,13 @@ class SequentialQueryController extends Controller
      * @param Request $request
      * @param null    $graphql_schema
      *
-     * @return Factory|\Illuminate\View\View
+     * @return Factory|View
      * @noinspection PhpUnused
      */
     public function graphiql(Request $request, $graphql_schema = null)
     {
         $view = config('graphql.graphiql.view', 'graphql::graphiql');
-        
+    
         return view(
             $view,
             [
@@ -230,6 +232,12 @@ class SequentialQueryController extends Controller
         );
     }
     
+    /**
+     * @param $schema
+     * @param $input
+     *
+     * @return mixed
+     */
     protected function executeQuery($schema, $input)
     {
         $variablesInputName = config('graphql.variables_input_name', 'variables');
@@ -252,6 +260,13 @@ class SequentialQueryController extends Controller
         );
     }
     
+    /**
+     * @param $query
+     * @param $variables
+     * @param $schema
+     *
+     * @return |null
+     */
     protected function queryContext($query, $variables, $schema)
     {
         try {
@@ -351,28 +366,6 @@ class SequentialQueryController extends Controller
         return !$isBatch
             ? Arr::get($results, 'errors', [])
             : [];
-    }
-    
-    /**
-     * @param array $errors
-     *
-     * @return bool
-     */
-    private function isAuthorized(array $errors) : bool
-    {
-        // FIXME: Missing tests!
-        // No need to analyze error array if no errors arose.
-        if ($errors === []) {
-            return true;
-        }
-        
-        return \array_reduce(
-            $errors,
-            static function ($authorized, $error) {
-                return !(!$authorized || Arr::get($error, 'message') === 'Unauthorized');
-            },
-            true
-        );
     }
     
     /**
