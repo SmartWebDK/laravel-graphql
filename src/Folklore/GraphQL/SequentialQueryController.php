@@ -309,11 +309,11 @@ class SequentialQueryController extends Controller
     
     /**
      * @param array|string|Schema $schema
-     * @param string              $operationName
+     * @param string|null         $operationName
      *
      * @return array
      */
-    private function getQueryOptions($schema, string $operationName) : array
+    private function getQueryOptions($schema, ?string $operationName) : array
     {
         $context = $this->queryContext();
         
