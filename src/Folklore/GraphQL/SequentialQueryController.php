@@ -5,10 +5,12 @@ declare(strict_types = 1);
 
 namespace Folklore\GraphQL;
 
+use Folklore\GraphQL\Events\QueryExecutionStarted;
 use Folklore\GraphQL\Events\RequestResolved;
 use Folklore\GraphQL\Http\Controller\DetectsAuthorizationErrors;
 use GraphQL\Executor\ExecutionResult;
 use GraphQL\Executor\Promise\Promise;
+use GraphQL\Type\Schema;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -163,31 +165,28 @@ class SequentialQueryController extends Controller
     }
     
     /**
-     * @param Request $request
-     * @param null    $graphql_schema
+     * @param Request     $request
+     * @param string|null $graphql_schema
      *
      * @return JsonResponse
      */
-    public function query(Request $request, $graphql_schema = null)
+    public function query(Request $request, ?string $graphql_schema = null) : JsonResponse
     {
         $isBatch = !$request->has('query');
         $inputs = $request->all();
         
-        if (is_null($graphql_schema)) {
-            $graphql_schema = config('graphql.schema');
-        }
+        $schemaName = $this->getSchemaName($graphql_schema);
         
-        /** @var ConnectionInterface $connection */
-        $connection = Container::getInstance()->get(ConnectionInterface::class);
+        $connection = $this->getDatabaseConnection();
         
         $connection->beginTransaction();
         
         if (!$isBatch) {
-            $data = $this->executeQuery($graphql_schema, $inputs);
+            $data = $this->executeQuery($schemaName, $inputs);
         } else {
             $data = [];
             foreach ($inputs as $input) {
-                $data[] = $this->executeQuery($graphql_schema, $input);
+                $data[] = $this->executeQuery($schemaName, $input);
             }
         }
         
@@ -210,7 +209,26 @@ class SequentialQueryController extends Controller
             return response()->json($data, 403, $headers, $options);
         }
         
+        $this->resolvedRequest($schemaName, $errors);
+        
         return response()->json($data, 200, $headers, $options);
+    }
+    
+    /**
+     * @return ConnectionInterface
+     */
+    private function getDatabaseConnection() : ConnectionInterface
+    {
+        return Container::getInstance()->get(ConnectionInterface::class);
+    }
+    
+    /**
+     * @param string $schemaName
+     * @param array  $errors
+     */
+    private function resolvedRequest(string $schemaName, array $errors) : void
+    {
+        $this->dispatcher->dispatch(new RequestResolved($schemaName, $errors));
     }
     
     /**
@@ -223,7 +241,7 @@ class SequentialQueryController extends Controller
     public function graphiql(Request $request, $graphql_schema = null)
     {
         $view = config('graphql.graphiql.view', 'graphql::graphiql');
-    
+        
         return view(
             $view,
             [
@@ -233,41 +251,79 @@ class SequentialQueryController extends Controller
     }
     
     /**
-     * @param $schema
-     * @param $input
+     * @param string $schema
+     * @param array  $input
      *
      * @return mixed
      */
-    protected function executeQuery($schema, $input)
+    protected function executeQuery(string $schema, array $input)
     {
-        $variablesInputName = config('graphql.variables_input_name', 'variables');
+        $queryData = $this->createQueryData($schema, $input);
+        
+        $this->startedExecutingQuery($queryData);
+        
+        return $this->executeQueryWithData($queryData);
+    }
+    
+    /**
+     * @param array $queryData
+     */
+    private function startedExecutingQuery(array $queryData) : void
+    {
+        $this->dispatcher->dispatch(QueryExecutionStarted::fromExecutionData($queryData));
+    }
+    
+    /**
+     * @param array $queryData
+     *
+     * @return mixed
+     */
+    private function executeQueryWithData(array $queryData)
+    {
+        return app('graphql')->query($queryData['query'], $queryData['variables'], $queryData['options']);
+    }
+    
+    /**
+     * @param string $schema
+     * @param array  $input
+     *
+     * @return array
+     */
+    private function createQueryData(string $schema, array $input) : array
+    {
         $query = array_get($input, 'query');
+        
+        $batchExecution = false;
+        
+        $variablesInputName = config('graphql.variables_input_name', 'variables');
         $variables = array_get($input, $variablesInputName);
         if (is_string($variables)) {
             $variables = json_decode($variables, true);
         }
-        $operationName = array_get($input, 'operationName');
-        $context = $this->queryContext($query, $variables, $schema);
         
-        return app('graphql')->query(
-            $query,
-            $variables,
-            [
-                'context'       => $context,
-                'schema'        => $schema,
-                'operationName' => $operationName,
-            ]
-        );
+        $operationName = array_get($input, 'operationName');
+        $options = $this->getQueryOptions($schema, $operationName);
+        
+        return \compact('query', 'batchExecution', 'variables', 'options');
     }
     
     /**
-     * @param $query
-     * @param $variables
-     * @param $schema
+     * @param array|string|Schema $schema
+     * @param string              $operationName
      *
-     * @return |null
+     * @return array
      */
-    protected function queryContext($query, $variables, $schema)
+    private function getQueryOptions($schema, string $operationName) : array
+    {
+        $context = $this->queryContext();
+        
+        return \compact('context', 'schema', 'operationName');
+    }
+    
+    /**
+     * @return mixed|null
+     */
+    protected function queryContext()
     {
         try {
             return app('auth')->user();
@@ -287,8 +343,7 @@ class SequentialQueryController extends Controller
      */
     public function query2(Request $request, ?string $graphql_schema = null) : JsonResponse
     {
-        /** @var ConnectionInterface $connection */
-        $connection = Container::getInstance()->get(ConnectionInterface::class);
+        $connection = $this->getDatabaseConnection();
         
         $isBatch = !$request->has('query');
         $inputs = $request->all();
@@ -318,7 +373,7 @@ class SequentialQueryController extends Controller
             return $this->response($results, 403);
         }
         
-        $this->dispatcher->dispatch(new RequestResolved($schemaName, $errors));
+        $this->resolvedRequest($schemaName, $errors);
         
         return $this->response($results, 200);
     }
